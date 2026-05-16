@@ -1,0 +1,6 @@
+// see https://github.com/kexi/vibe/
+
+[copy]
+dirs = [
+    "./node_modules",
+]
