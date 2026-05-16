@@ -1,6 +1,11 @@
 import { parseArgs } from "node:util";
 import { reviewCommand } from "./commands/review.ts";
-import { shellSetupCommand } from "./commands/shell-setup.ts";
+import {
+  SUPPORTED_SHELLS,
+  type ShellKind,
+  detectShell,
+  shellSetupCommand,
+} from "./commands/shell-setup.ts";
 import { setShellMode } from "./lib/runtime.ts";
 
 const VERSION = "0.0.1";
@@ -17,8 +22,12 @@ Options:
   -v, --version    Show version
 
 Shell integration:
-  Add the following to ~/.bashrc or ~/.zshrc:
-      eval "$(gh vibe shell-setup)"
+  bash / zsh:
+      eval "$(gh vibe shell-setup)"           # ~/.bashrc or ~/.zshrc
+  fish:
+      gh vibe shell-setup --shell=fish | source   # ~/.config/fish/config.fish
+  PowerShell:
+      gh vibe shell-setup --shell=pwsh | Out-String | Invoke-Expression   # $PROFILE
   After that, \`gh vibe review <PR>\` will also cd you into the new worktree.
 
 Requires: gh, git, and vibe in PATH.
@@ -104,21 +113,37 @@ async function main(argv: string[]): Promise<number> {
       const { values } = parseArgs({
         args: rest,
         options: {
+          shell: { type: "string" },
           help: { type: "boolean", short: "h", default: false },
         },
         allowPositionals: false,
       });
       if (values.help) {
         console.log(
-          "Usage: gh vibe shell-setup\n\n" +
-            "Prints a shell snippet that, when eval'd in bash or zsh, wraps\n" +
-            "`gh` so `gh vibe review` cd's the parent shell into the worktree.\n\n" +
+          "Usage: gh vibe shell-setup [--shell=<bash|zsh|fish|pwsh>]\n\n" +
+            "Prints a shell wrapper that makes `gh vibe review` cd the parent\n" +
+            "shell into the worktree on success. The output is shell-specific;\n" +
+            "without --shell, the calling shell is auto-detected from $SHELL\n" +
+            "(or $PSModulePath for PowerShell).\n\n" +
             "Install with:\n" +
-            "  eval \"$(gh vibe shell-setup)\"",
+            "  bash/zsh:  eval \"$(gh vibe shell-setup)\"\n" +
+            "  fish:      gh vibe shell-setup --shell=fish | source\n" +
+            "  pwsh:      gh vibe shell-setup --shell=pwsh | Out-String | Invoke-Expression",
         );
         return 0;
       }
-      return shellSetupCommand();
+      const requestedShell = values.shell;
+      const isValidShell = (s: string): s is ShellKind =>
+        (SUPPORTED_SHELLS as readonly string[]).includes(s);
+      if (requestedShell !== undefined && !isValidShell(requestedShell)) {
+        console.error(
+          `Unknown --shell value: ${requestedShell}. ` +
+            `Supported: ${SUPPORTED_SHELLS.join(", ")}.`,
+        );
+        return 2;
+      }
+      const shell = requestedShell ?? detectShell();
+      return shellSetupCommand(shell);
     }
     default:
       console.error(`Unknown command: ${sub}`);

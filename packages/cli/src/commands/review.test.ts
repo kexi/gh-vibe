@@ -186,7 +186,7 @@ describe("reviewCommand", () => {
 
     expect(code).toBe(0);
     expect(stdoutChunks.join("")).toBe(
-      ": __ghvibe_v1_begin__\ncd '/repos/feature'\n: __ghvibe_v1_end__\n",
+      "# __ghvibe_v1_begin__\ncd '/repos/feature'\n# __ghvibe_v1_end__\n",
     );
   });
 
@@ -216,7 +216,7 @@ describe("reviewCommand", () => {
     await reviewCommand({ prRef: "123", dryRun: false }, deps);
 
     expect(stdoutChunks.join("")).toBe(
-      ": __ghvibe_v1_begin__\ncd '/repos/wei'\\''rd'\n: __ghvibe_v1_end__\n",
+      "# __ghvibe_v1_begin__\ncd '/repos/wei'\\''rd'\n# __ghvibe_v1_end__\n",
     );
   });
 
