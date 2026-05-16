@@ -30,10 +30,13 @@ export class ExecError extends Error {
   }
 }
 
+export type StdioOption = "inherit" | "pipe" | "ignore";
+export type Stdio = StdioOption | [StdioOption, StdioOption, StdioOption];
+
 export function exec(
   cmd: string,
   args: string[],
-  opts: { stdio?: "inherit" | "pipe"; cwd?: string } = {},
+  opts: { stdio?: Stdio; cwd?: string } = {},
 ): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
     const stdio = opts.stdio ?? "pipe";
@@ -42,10 +45,15 @@ export function exec(
     let stdout = "";
     let stderr = "";
 
-    if (stdio === "pipe") {
+    // Only collect output from streams that were actually piped.
+    const stdoutPiped = Array.isArray(stdio) ? stdio[1] === "pipe" : stdio === "pipe";
+    const stderrPiped = Array.isArray(stdio) ? stdio[2] === "pipe" : stdio === "pipe";
+    if (stdoutPiped) {
       child.stdout?.on("data", (chunk) => {
         stdout += chunk.toString();
       });
+    }
+    if (stderrPiped) {
       child.stderr?.on("data", (chunk) => {
         stderr += chunk.toString();
       });

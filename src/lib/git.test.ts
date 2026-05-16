@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ExecError } from "./exec.ts";
-import { formatGitError } from "./git.ts";
+import { formatGitError, parseWorktreeListZ } from "./git.ts";
 
 function makeExecError(stderr: string, stdout = "", exitCode = 128): ExecError {
   return new ExecError({
@@ -71,5 +71,76 @@ describe("formatGitError", () => {
     const err = makeExecError("", "", 130);
     const msg = formatGitError(err, {});
     expect(msg).toBe("git exited with code 130");
+  });
+});
+
+describe("parseWorktreeListZ", () => {
+  /**
+   * Helper: build a `git worktree list --porcelain -z` payload from groups of
+   * attribute lines. NUL separates lines, double-NUL separates groups.
+   */
+  function buildOutput(groups: string[][]): string {
+    return groups.map((lines) => lines.join("\0")).join("\0\0");
+  }
+
+  test("returns the worktree path for a matching branch", () => {
+    const out = buildOutput([
+      ["worktree /repos/main", "HEAD abc123", "branch refs/heads/main"],
+      [
+        "worktree /repos/feature",
+        "HEAD def456",
+        "branch refs/heads/feature",
+      ],
+    ]);
+    expect(parseWorktreeListZ(out, "feature")).toBe("/repos/feature");
+  });
+
+  test("returns null when no group references the branch", () => {
+    const out = buildOutput([
+      ["worktree /repos/main", "HEAD abc123", "branch refs/heads/main"],
+    ]);
+    expect(parseWorktreeListZ(out, "missing")).toBeNull();
+  });
+
+  test("ignores detached-HEAD worktrees", () => {
+    const out = buildOutput([
+      ["worktree /repos/detached", "HEAD abc123", "detached"],
+      ["worktree /repos/feature", "HEAD def456", "branch refs/heads/feature"],
+    ]);
+    expect(parseWorktreeListZ(out, "feature")).toBe("/repos/feature");
+  });
+
+  test("preserves paths that contain spaces", () => {
+    const out = buildOutput([
+      [
+        "worktree /repos/with space",
+        "HEAD abc123",
+        "branch refs/heads/feature",
+      ],
+    ]);
+    expect(parseWorktreeListZ(out, "feature")).toBe("/repos/with space");
+  });
+
+  test("handles namespaced branch names like pr/42/feature", () => {
+    const out = buildOutput([
+      [
+        "worktree /repos/pr-42",
+        "HEAD abc123",
+        "branch refs/heads/pr/42/feature",
+      ],
+    ]);
+    expect(parseWorktreeListZ(out, "pr/42/feature")).toBe("/repos/pr-42");
+  });
+
+  test("does not match a branch that is a prefix of another", () => {
+    // Guard against accidental `startsWith`-style matching.
+    const out = buildOutput([
+      [
+        "worktree /repos/feature-x",
+        "HEAD abc123",
+        "branch refs/heads/feature-x",
+      ],
+    ]);
+    expect(parseWorktreeListZ(out, "feature")).toBeNull();
   });
 });
