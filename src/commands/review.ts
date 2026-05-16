@@ -7,12 +7,35 @@ export interface ReviewOptions {
   dryRun: boolean;
 }
 
-export async function reviewCommand(opts: ReviewOptions): Promise<number> {
-  const pr = await viewPullRequest(opts.prRef);
+/**
+ * Seams for `reviewCommand` so tests can inject mocks. Defaults wire up the
+ * real gh / git / vibe callers.
+ */
+export interface ReviewDeps {
+  viewPullRequest: typeof viewPullRequest;
+  fetchBranch: typeof fetchBranch;
+  localBranchExists: typeof localBranchExists;
+  exec: typeof exec;
+  log: (msg: string) => void;
+}
 
-  console.error(`PR #${pr.number}: ${pr.title}`);
-  console.error(`  ${pr.url}`);
-  console.error(
+const defaultDeps: ReviewDeps = {
+  viewPullRequest,
+  fetchBranch,
+  localBranchExists,
+  exec,
+  log: (msg) => console.error(msg),
+};
+
+export async function reviewCommand(
+  opts: ReviewOptions,
+  deps: ReviewDeps = defaultDeps,
+): Promise<number> {
+  const pr = await deps.viewPullRequest(opts.prRef);
+
+  deps.log(`PR #${pr.number}: ${pr.title}`);
+  deps.log(`  ${pr.url}`);
+  deps.log(
     `  ${pr.headRefName} → ${pr.baseRefName} (${pr.state.toLowerCase()})`,
   );
 
@@ -29,29 +52,29 @@ export async function reviewCommand(opts: ReviewOptions): Promise<number> {
     }
     localBranch = `pr/${pr.number}/${pr.headRefName}`;
     const forkUrl = `https://github.com/${owner}/${repo}.git`;
-    console.error(`Fetching ${forkUrl} ${pr.headRefName} → ${localBranch}`);
+    deps.log(`Fetching ${forkUrl} ${pr.headRefName} → ${localBranch}`);
     if (!opts.dryRun) {
-      await fetchBranch(forkUrl, `${pr.headRefName}:${localBranch}`);
+      await deps.fetchBranch(forkUrl, `${pr.headRefName}:${localBranch}`);
     }
   } else {
     localBranch = pr.headRefName;
-    console.error(`Fetching origin ${pr.headRefName}`);
+    deps.log(`Fetching origin ${pr.headRefName}`);
     if (!opts.dryRun) {
-      await fetchBranch("origin", pr.headRefName);
+      await deps.fetchBranch("origin", pr.headRefName);
     }
   }
 
   // vibe start --reuse requires the branch to already exist locally
-  if (!opts.dryRun && !(await localBranchExists(localBranch))) {
+  if (!opts.dryRun && !(await deps.localBranchExists(localBranch))) {
     throw new Error(`Expected local branch ${localBranch} after fetch, not found.`);
   }
 
-  console.error(`Creating worktree via: vibe start ${localBranch} --reuse`);
+  deps.log(`Creating worktree via: vibe start ${localBranch} --reuse`);
   if (opts.dryRun) {
     return 0;
   }
 
-  const result = await exec("vibe", ["start", localBranch, "--reuse"], {
+  const result = await deps.exec("vibe", ["start", localBranch, "--reuse"], {
     stdio: "inherit",
   });
   return result.exitCode;
