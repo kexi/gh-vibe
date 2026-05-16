@@ -59,7 +59,18 @@ export function exec(
       });
     }
 
-    child.on("error", reject);
+    child.on("error", (err) => {
+      // Translate ENOENT (binary not on PATH) into a user-actionable message
+      // here so every caller — issueCommand, reviewCommand, vibe exec, raw git
+      // / gh calls — gets the same friendly form without each having to wrap.
+      const errCode = (err as NodeJS.ErrnoException).code;
+      const isMissing = errCode === "ENOENT";
+      if (isMissing) {
+        reject(new Error(`${cmd}: command not found in PATH.`));
+        return;
+      }
+      reject(err);
+    });
     child.on("close", (code) => {
       resolve({ stdout, stderr, exitCode: code ?? 0 });
     });

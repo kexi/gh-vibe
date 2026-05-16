@@ -13,6 +13,14 @@ export interface PullRequest {
   state: "OPEN" | "CLOSED" | "MERGED";
 }
 
+export interface Issue {
+  number: number;
+  title: string;
+  url: string;
+  state: "OPEN" | "CLOSED";
+  labels: Array<{ name: string }>;
+}
+
 const PR_FIELDS = [
   "number",
   "title",
@@ -25,11 +33,22 @@ const PR_FIELDS = [
   "state",
 ].join(",");
 
+const ISSUE_FIELDS = ["number", "title", "url", "state", "labels"].join(",");
+
+/**
+ * Context for `formatGhError`. Either `prRef` or `issueRef` should be set
+ * depending on which gh subcommand failed; both branches recognise their own
+ * "Could not resolve to a …" GraphQL error pattern. `ownerRepo` is optional
+ * and tightens the "not found" message when known.
+ */
+export interface GhErrorContext {
+  prRef?: string;
+  issueRef?: string;
+  ownerRepo?: string;
+}
+
 /** @internal Exported for unit tests; not part of the public API. */
-export function formatGhError(
-  err: ExecError,
-  ctx: { prRef?: string; ownerRepo?: string },
-): string {
+export function formatGhError(err: ExecError, ctx: GhErrorContext): string {
   const cleanStderr = stripAnsi(err.stderr);
   const cleanStdout = stripAnsi(err.stdout);
 
@@ -40,6 +59,16 @@ export function formatGhError(
     const prNumber = ctx.prRef ? `#${ctx.prRef}` : "";
     const repoSuffix = ctx.ownerRepo ? ` in ${ctx.ownerRepo}` : "";
     const subject = ["PR", prNumber].filter(Boolean).join(" ");
+    return `${subject} not found${repoSuffix}.`;
+  }
+
+  const isIssueNotFound = cleanStderr.includes(
+    "Could not resolve to an Issue",
+  );
+  if (isIssueNotFound) {
+    const issueNumber = ctx.issueRef ? `#${ctx.issueRef}` : "";
+    const repoSuffix = ctx.ownerRepo ? ` in ${ctx.ownerRepo}` : "";
+    const subject = ["Issue", issueNumber].filter(Boolean).join(" ");
     return `${subject} not found${repoSuffix}.`;
   }
 
@@ -80,6 +109,38 @@ export async function viewPullRequest(
       // Keep the raw ExecError as `cause` so a future --verbose flag can
       // expose stderr/stdout without re-running the command.
       throw new Error(formatGhError(err, { prRef, ownerRepo }), { cause: err });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Fetch an issue's metadata via `gh issue view`.
+ *
+ * @param ownerRepo Optional `owner/repo`; when supplied, "not found" errors
+ *   include the repo for clarity. Omit when the caller doesn't yet know it.
+ */
+export async function viewIssue(
+  issueRef: string,
+  ownerRepo?: string,
+  // Test seam; not part of the public API.
+  _exec: typeof execOrThrow = execOrThrow,
+): Promise<Issue> {
+  try {
+    const out = await _exec("gh", [
+      "issue",
+      "view",
+      issueRef,
+      "--json",
+      ISSUE_FIELDS,
+    ]);
+    return JSON.parse(out) as Issue;
+  } catch (err) {
+    const isExecError = err instanceof ExecError;
+    if (isExecError) {
+      throw new Error(formatGhError(err, { issueRef, ownerRepo }), {
+        cause: err,
+      });
     }
     throw err;
   }

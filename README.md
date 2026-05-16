@@ -27,6 +27,25 @@ gh vibe review 123 --dry-run
 Requires: `gh`, `git`, `vibe` in `PATH`, run inside a git repository whose
 default remote (`origin`) points at the PR's base repo.
 
+### `gh vibe issue <# | URL>`
+
+Looks up the issue via `gh issue view`, derives a branch name of the form
+`<type>/<num>-<slug>` from the issue's labels and title (labels like `bug` →
+`fix`, `enhancement` → `feat`; falls back to `chore` when no label matches),
+and creates a vibe worktree off the repository's default branch via
+`vibe start <branch> --base <base>`.
+
+```sh
+gh vibe issue 42
+gh vibe issue 42 --type feat
+gh vibe issue 42 --base develop
+gh vibe issue 42 --dry-run
+```
+
+Requires: `gh`, `git`, `vibe` in `PATH`. When `--base` is omitted, the
+repository must have `refs/remotes/origin/HEAD` set (recreate it with
+`git remote set-head origin --auto`).
+
 ### `gh vibe shell-setup`
 
 Prints a shell snippet that wraps `gh` so that `gh vibe review <PR>` will

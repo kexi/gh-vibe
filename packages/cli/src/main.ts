@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { issueCommand } from "./commands/issue.ts";
 import { reviewCommand } from "./commands/review.ts";
 import {
   SUPPORTED_SHELLS,
@@ -6,6 +7,7 @@ import {
   detectShell,
   shellSetupCommand,
 } from "./commands/shell-setup.ts";
+import { type TypePrefix, validateType } from "./lib/branch-name.ts";
 import { setShellMode } from "./lib/runtime.ts";
 
 const VERSION = "0.0.1";
@@ -14,6 +16,7 @@ const HELP_TEXT = `gh-vibe — gh CLI extension for vibe worktrees
 
 Usage:
   gh vibe review <PR# | URL>   Create a worktree for reviewing a pull request
+  gh vibe issue <# | URL>      Create a worktree for working on an issue
   gh vibe shell-setup          Print shell wrapper that auto-cd's into the worktree
 
 Options:
@@ -28,7 +31,8 @@ Shell integration:
       gh vibe shell-setup --shell=fish | source   # ~/.config/fish/config.fish
   PowerShell:
       gh vibe shell-setup --shell=pwsh | Out-String | Invoke-Expression   # $PROFILE
-  After that, \`gh vibe review <PR>\` will also cd you into the new worktree.
+  After that, \`gh vibe review <PR>\` and \`gh vibe issue <#>\` will also cd
+  you into the new worktree.
 
 Requires: gh, git, and vibe in PATH.
 `;
@@ -69,7 +73,37 @@ export function initShellMode(): boolean {
   return true;
 }
 
-async function main(argv: string[]): Promise<number> {
+/**
+ * Test seam. Tests inject mocked subcommand implementations so they can
+ * verify argv parsing / dispatch without spawning real `gh` / `git` / `vibe`.
+ *
+ * @internal
+ */
+export interface MainDeps {
+  issueCommand: typeof issueCommand;
+  reviewCommand: typeof reviewCommand;
+}
+
+/**
+ * Concrete shape of `parseArgs(...)` output for the `issue` subcommand.
+ * Extracted so we don't have to repeat the inline cast twice (once at the
+ * catch boundary and once when destructuring).
+ */
+type ParsedIssueArgs = {
+  values: {
+    "dry-run": boolean;
+    base?: string;
+    type?: string;
+    help: boolean;
+  };
+  positionals: string[];
+};
+
+/** Exported only for tests; production callers should use the entry-point block. */
+export async function main(
+  argv: string[],
+  deps: MainDeps = { issueCommand, reviewCommand },
+): Promise<number> {
   const shellMode = initShellMode();
   setShellMode(shellMode);
 
@@ -107,7 +141,88 @@ async function main(argv: string[]): Promise<number> {
         console.error("Usage: gh vibe review <PR# | URL>");
         return 2;
       }
-      return await reviewCommand({ prRef, dryRun: values["dry-run"] });
+      return await deps.reviewCommand({ prRef, dryRun: values["dry-run"] });
+    }
+    case "issue": {
+      // `parseArgs` throws on a few user-error shapes we already intend to
+      // exit 2 on (dash-prefixed positional, missing option arg). Translate
+      // those into a friendly stderr + exit 2 instead of bubbling.
+      let parsed: ParsedIssueArgs | undefined;
+      try {
+        parsed = parseArgs({
+          args: rest,
+          options: {
+            "dry-run": { type: "boolean", short: "n", default: false },
+            base: { type: "string" },
+            type: { type: "string" },
+            help: { type: "boolean", short: "h", default: false },
+          },
+          allowPositionals: true,
+        }) as ParsedIssueArgs;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        console.error("Usage: gh vibe issue <# | URL> [options]");
+        return 2;
+      }
+      const { values, positionals } = parsed;
+      if (values.help) {
+        console.log(
+          "Usage: gh vibe issue <# | URL> [options]\n\n" +
+            "Create a vibe worktree for working on an issue. The branch name is\n" +
+            "derived from the issue's labels and title: <type>/<num>-<slug>.\n\n" +
+            "Options:\n" +
+            "  -n, --dry-run    Print the derived branch + base and exit without\n" +
+            "                   fetching or invoking vibe. (Still queries the GitHub\n" +
+            "                   API to compute the slug.)\n" +
+            "  --base <ref>     Base branch (default: repository's default branch).\n" +
+            "  --type <t>       Override label-inferred type (feat | fix | docs |\n" +
+            "                   chore | refactor | test | perf).\n" +
+            "  -h, --help       Show this help.",
+        );
+        return 0;
+      }
+      const issueRef = positionals[0];
+      if (!issueRef) {
+        console.error("Error: issue requires an issue number or URL.");
+        console.error("Usage: gh vibe issue <# | URL>");
+        return 2;
+      }
+      // Reject positionals that look like a flag — even if `gh issue view`
+      // would accept them, treating `-1` as a positional invites argv
+      // injection surprises further down the pipeline.
+      const issueRefLooksLikeFlag = issueRef.startsWith("-");
+      if (issueRefLooksLikeFlag) {
+        console.error(
+          `Error: issue number must not start with '-' (got: ${issueRef}).`,
+        );
+        return 2;
+      }
+      const rawBase = values.base;
+      const baseLooksLikeFlag =
+        rawBase !== undefined && rawBase.startsWith("-");
+      if (baseLooksLikeFlag) {
+        console.error(
+          `Error: --base must not start with '-' (got: ${rawBase}).`,
+        );
+        return 2;
+      }
+      let type: TypePrefix | undefined;
+      if (values.type !== undefined) {
+        try {
+          type = validateType(values.type);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Error: ${message}`);
+          return 2;
+        }
+      }
+      return await deps.issueCommand({
+        issueRef,
+        dryRun: values["dry-run"],
+        base: rawBase,
+        type,
+      });
     }
     case "shell-setup": {
       const { values } = parseArgs({
@@ -121,10 +236,10 @@ async function main(argv: string[]): Promise<number> {
       if (values.help) {
         console.log(
           "Usage: gh vibe shell-setup [--shell=<bash|zsh|fish|pwsh>]\n\n" +
-            "Prints a shell wrapper that makes `gh vibe review` cd the parent\n" +
-            "shell into the worktree on success. The output is shell-specific;\n" +
-            "without --shell, the calling shell is auto-detected from $SHELL\n" +
-            "(or $PSModulePath for PowerShell).\n\n" +
+            "Prints a shell wrapper that makes `gh vibe review` and\n" +
+            "`gh vibe issue` cd the parent shell into the worktree on success.\n" +
+            "The output is shell-specific; without --shell, the calling shell\n" +
+            "is auto-detected from $SHELL (or $PSModulePath for PowerShell).\n\n" +
             "Install with:\n" +
             "  bash/zsh:  eval \"$(gh vibe shell-setup)\"\n" +
             "  fish:      gh vibe shell-setup --shell=fish | source\n" +

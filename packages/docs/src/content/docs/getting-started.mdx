@@ -64,4 +64,17 @@ To preview what would happen without making any changes:
 gh vibe review 123 --dry-run
 ```
 
+## 5. Start work on an issue
+
+Turn an issue into a worktree on a fresh branch named from the issue's
+labels and title:
+
+```sh
+gh vibe issue 42
+```
+
+The branch name has the shape `<type>/<num>-<slug>` — see
+[`gh vibe issue`](/commands/issue/) for the full label-to-type table and the
+`--type` / `--base` / `--dry-run` flags.
+
 Read on for the full [command reference](/commands/review/).

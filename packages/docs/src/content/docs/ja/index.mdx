@@ -23,6 +23,10 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe review 123` で PR の head ブランチ（fork PR も対応）を fetch
     し、`vibe start --reuse` で worktree を生成します。
   </Card>
+  <Card title="Issue → worktree" icon="bookmark">
+    `gh vibe issue 42` で issue のラベルとタイトルから
+    `<type>/<num>-<slug>` のブランチ名を導出し、worktree を作成します。
+  </Card>
   <Card title="シェル自動 cd" icon="terminal">
     bash / zsh / fish / PowerShell 用スニペットを仕込めば、`gh vibe review`
     成功時に自動で作成済みの worktree に `cd` します。
@@ -42,8 +46,10 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 ```sh
 gh extension install kexi/gh-vibe
 
-# 任意: 作成した worktree に自動で cd
-eval "$(gh vibe shell-setup)" >> ~/.zshrc
+# 任意: 以下の行を ~/.zshrc（または ~/.bashrc）に追記しておくと、
+# `gh vibe review` / `gh vibe issue` 成功時にシェルが worktree に自動で
+# cd します:
+eval "$(gh vibe shell-setup)"
 
 gh vibe review 123
 ```

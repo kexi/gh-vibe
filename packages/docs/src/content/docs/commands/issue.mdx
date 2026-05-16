@@ -1,0 +1,101 @@
+---
+title: gh vibe issue
+description: Derive a branch from an issue's labels and title, then create a vibe worktree from it.
+---
+
+Looks up the issue via `gh issue view`, derives a branch name of the form
+`<type>/<num>-<slug>` from the issue's labels and title, and creates a
+[vibe](https://github.com/kexi/vibe) worktree off the repository's default
+branch via `vibe start <branch> --base <base>`.
+
+## Usage
+
+```sh
+gh vibe issue <# | URL>
+```
+
+Both forms are accepted:
+
+```sh
+gh vibe issue 42
+gh vibe issue https://github.com/owner/repo/issues/42
+```
+
+## Flags
+
+### `--dry-run`
+
+Prints the derived branch name and base, runs the local-branch collision
+check, but skips `git fetch` and `vibe start`. The GitHub API is still
+queried because the slug depends on the issue's labels and title.
+
+```sh
+gh vibe issue 42 --dry-run
+```
+
+### `--base <ref>`
+
+Override the base branch. Defaults to the repository's default branch
+(resolved from `refs/remotes/origin/HEAD`).
+
+```sh
+gh vibe issue 42 --base develop
+```
+
+### `--type <t>`
+
+Override the label-inferred type prefix. One of `feat`, `fix`, `docs`,
+`chore`, `refactor`, `test`, `perf`.
+
+```sh
+gh vibe issue 42 --type feat
+```
+
+## Branch-name derivation
+
+The branch name is `<type>/<num>-<slug>`. Each component is derived
+independently:
+
+- **`<type>`** — picked from the first issue label whose normalised name maps
+  to a known type. Approximate mapping (label → prefix):
+
+  | Label (case-insensitive)                | Prefix     |
+  | --------------------------------------- | ---------- |
+  | `feat`, `feature`, `enhancement`        | `feat`     |
+  | `fix`, `bug`, `bugfix`, `defect`        | `fix`      |
+  | `docs`, `documentation`                 | `docs`     |
+  | `chore`, `dependencies`, `deps`, `ci`   | `chore`    |
+  | `refactor`, `refactoring`, `cleanup`    | `refactor` |
+  | `test`, `tests`, `testing`              | `test`     |
+  | `perf`, `performance`                   | `perf`     |
+
+  Falls back to `chore` when no label maps to a known type. `--type` bypasses
+  this lookup entirely.
+
+- **`<num>`** — the issue number, embedded literally.
+
+- **`<slug>`** — derived from the title by NFKD-normalising, stripping
+  combining marks, lower-casing, and replacing any non-ASCII-alphanumeric run
+  with `-`. Truncated to 50 characters. Titles consisting only of emoji or
+  CJK characters yield an empty slug; in that case the slug falls back to
+  `issue-<n>`.
+
+## Requirements
+
+- `gh`, `git`, and `vibe` available in `PATH`.
+- Run from inside a git repository whose default remote (`origin`) points at
+  the issue's repo.
+- When `--base` is omitted, `refs/remotes/origin/HEAD` must be set. Recreate
+  it with `git remote set-head origin --auto` if it is missing.
+
+## What it does
+
+1. Resolves the issue via `gh issue view` (number or URL accepted).
+2. Resolves the base branch (`--base` value or repository default).
+3. Derives the local branch name from labels + title (see above).
+4. Refuses to proceed if a local branch by that name already exists.
+5. `git fetch`es the base branch from `origin`.
+6. Hands off to `vibe start <branch> --base <base>` to create the worktree.
+
+Pair this with [`gh vibe shell-setup`](/commands/shell-setup/) so that your
+shell `cd`s into the worktree on success.

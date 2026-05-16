@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ExecError } from "./exec.ts";
-import { formatGhError } from "./gh.ts";
+import { formatGhError, viewIssue } from "./gh.ts";
 
 function makeExecError(stderr: string, stdout = "", exitCode = 1): ExecError {
   return new ExecError({
@@ -114,5 +114,88 @@ describe("formatGhError", () => {
     const msg = formatGhError(err, {});
     expect(msg).toBe("something went wrong");
     expect(msg).not.toContain("\x1b[");
+  });
+
+  test("Issue not found with ownerRepo", () => {
+    const err = makeExecError(
+      "GraphQL: Could not resolve to an Issue with the number of 42. (repository.issue)\n",
+    );
+    const msg = formatGhError(err, {
+      issueRef: "42",
+      ownerRepo: "kexi/gh-vibe",
+    });
+    expect(msg).toBe("Issue #42 not found in kexi/gh-vibe.");
+  });
+
+  test("Issue not found without ownerRepo", () => {
+    const err = makeExecError(
+      "GraphQL: Could not resolve to an Issue with the number of 42.\n",
+    );
+    const msg = formatGhError(err, { issueRef: "42" });
+    expect(msg).toBe("Issue #42 not found.");
+  });
+
+  test("PR-not-found context still works alongside the new Issue branch", () => {
+    const err = makeExecError(
+      "GraphQL: Could not resolve to a PullRequest with the number of 417.\n",
+    );
+    expect(formatGhError(err, { prRef: "417" })).toBe("PR #417 not found.");
+  });
+});
+
+describe("viewIssue", () => {
+  test("parses gh JSON into an Issue", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) =>
+      JSON.stringify({
+        number: 7,
+        title: "Bug: login broken",
+        url: "https://github.com/owner/repo/issues/7",
+        state: "OPEN",
+        labels: [{ name: "bug" }, { name: "priority/high" }],
+      });
+
+    const issue = await viewIssue("7", undefined, fakeExec);
+
+    expect(issue.number).toBe(7);
+    expect(issue.title).toBe("Bug: login broken");
+    expect(issue.state).toBe("OPEN");
+    expect(issue.labels).toEqual([
+      { name: "bug" },
+      { name: "priority/high" },
+    ]);
+  });
+
+  test("translates 'Could not resolve to an Issue' into the friendly message", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr:
+          "GraphQL: Could not resolve to an Issue with the number of 999.\n",
+        exitCode: 1,
+      });
+    };
+
+    await expect(viewIssue("999", undefined, fakeExec)).rejects.toThrow(
+      "Issue #999 not found.",
+    );
+  });
+
+  test("includes ownerRepo in the not-found message when supplied", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr:
+          "GraphQL: Could not resolve to an Issue with the number of 1.\n",
+        exitCode: 1,
+      });
+    };
+
+    await expect(
+      viewIssue("1", "kexi/gh-vibe", fakeExec),
+    ).rejects.toThrow("Issue #1 not found in kexi/gh-vibe.");
   });
 });

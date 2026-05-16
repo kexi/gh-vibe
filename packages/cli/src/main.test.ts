@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { initShellMode } from "./main.ts";
+import type { IssueOptions } from "./commands/issue.ts";
+import type { ReviewOptions } from "./commands/review.ts";
+import { initShellMode, main, type MainDeps } from "./main.ts";
 import { getShellMode, setShellMode } from "./lib/runtime.ts";
 
 /**
@@ -161,5 +163,133 @@ describe("initShellMode", () => {
     initShellMode();
 
     expect(console.log).toBe(savedConsoleLog);
+  });
+});
+
+describe("main: issue subcommand argv parsing", () => {
+  function makeMainDeps(overrides: Partial<MainDeps> = {}): MainDeps {
+    return {
+      issueCommand: async (_opts: IssueOptions) => 0,
+      reviewCommand: async (_opts: ReviewOptions) => 0,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    setIsTty(false);
+  });
+
+  test("--help prints usage and exits 0 without invoking issueCommand", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      issueCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["issue", "--help"], deps);
+
+    expect(code).toBe(0);
+    expect(invoked).toBe(false);
+  });
+
+  test("no positional → exit 2", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      issueCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["issue"], deps);
+
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  test("positional starting with '-' (e.g. -1) → exit 2", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      issueCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["issue", "-1"], deps);
+
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  test("--base starting with '-' (e.g. -foo) → exit 2", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      issueCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["issue", "5", "--base", "-foo"], deps);
+
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  // R6: `parseArgs` routes `--base=-foo` (equals form) through a different
+  // code path than `--base -foo` (space form). Node's parser already errors
+  // on dash-prefixed option values; the issue subcommand's wrapping try/catch
+  // must translate that into our exit-2 contract.
+  test("--base=-foo (equals form) → exit 2", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      issueCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["issue", "5", "--base=-foo"], deps);
+
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  test("--type bogus → exit 2", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      issueCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["issue", "5", "--type", "bogus"], deps);
+
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  test("issue 5 --type feat --base develop --dry-run forwards correct opts", async () => {
+    const captured: IssueOptions[] = [];
+    const deps = makeMainDeps({
+      issueCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(
+      ["issue", "5", "--type", "feat", "--base", "develop", "--dry-run"],
+      deps,
+    );
+
+    expect(code).toBe(0);
+    expect(captured).toEqual([
+      { issueRef: "5", dryRun: true, base: "develop", type: "feat" },
+    ]);
   });
 });

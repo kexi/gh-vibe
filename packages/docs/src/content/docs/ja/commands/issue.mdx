@@ -1,0 +1,100 @@
+---
+title: gh vibe issue
+description: Issue のラベルとタイトルからブランチ名を導出し、vibe worktree を作成する
+---
+
+`gh issue view` で issue を取得し、ラベルとタイトルから
+`<type>/<num>-<slug>` という形式のブランチ名を導出して、リポジトリの既定
+ブランチを base に [vibe](https://github.com/kexi/vibe) の worktree を
+`vibe start <branch> --base <base>` で作成します。
+
+## 使い方
+
+```sh
+gh vibe issue <# | URL>
+```
+
+番号でも URL でも受け付けます:
+
+```sh
+gh vibe issue 42
+gh vibe issue https://github.com/owner/repo/issues/42
+```
+
+## フラグ
+
+### `--dry-run`
+
+導出したブランチ名と base を表示し、ローカルブランチの衝突チェックまで
+は実行しますが、`git fetch` と `vibe start` はスキップします。slug は
+ラベルとタイトルから決まるため、GitHub API への問い合わせは行われます。
+
+```sh
+gh vibe issue 42 --dry-run
+```
+
+### `--base <ref>`
+
+base ブランチを上書きします。既定値はリポジトリの既定ブランチ
+（`refs/remotes/origin/HEAD` から解決）です。
+
+```sh
+gh vibe issue 42 --base develop
+```
+
+### `--type <t>`
+
+ラベルから推定された type prefix を上書きします。`feat` / `fix` / `docs` /
+`chore` / `refactor` / `test` / `perf` のいずれか。
+
+```sh
+gh vibe issue 42 --type feat
+```
+
+## ブランチ名の導出
+
+ブランチ名は `<type>/<num>-<slug>` の形式です。各要素は独立に導出されます:
+
+- **`<type>`** — issue のラベルのうち、最初に既知の type にマップされる
+  ラベル名から決定されます。マッピングはおおよそ以下のとおり:
+
+  | ラベル名（大文字小文字無視）              | Prefix     |
+  | --------------------------------------- | ---------- |
+  | `feat`, `feature`, `enhancement`        | `feat`     |
+  | `fix`, `bug`, `bugfix`, `defect`        | `fix`      |
+  | `docs`, `documentation`                 | `docs`     |
+  | `chore`, `dependencies`, `deps`, `ci`   | `chore`    |
+  | `refactor`, `refactoring`, `cleanup`    | `refactor` |
+  | `test`, `tests`, `testing`              | `test`     |
+  | `perf`, `performance`                   | `perf`     |
+
+  既知の type にマップされるラベルがなければ `chore` にフォールバック
+  します。`--type` を指定するとこの推定はスキップされます。
+
+- **`<num>`** — issue 番号がそのまま埋め込まれます。
+
+- **`<slug>`** — タイトルを NFKD 正規化し、結合文字を除去、小文字化し、
+  非 ASCII 英数字の連続を `-` に置換して導出します。50 文字に切り詰め
+  られます。タイトルが絵文字や CJK 文字のみで構成されていて slug が空に
+  なる場合は `issue-<n>` にフォールバックします。
+
+## 必要条件
+
+- `gh`、`git`、`vibe` が `PATH` 上に存在すること。
+- 既定のリモート（`origin`）が issue のリポジトリを指す git リポジトリ
+  の中から実行すること。
+- `--base` を省略する場合は `refs/remotes/origin/HEAD` が設定されている
+  必要があります。失われている場合は `git remote set-head origin --auto`
+  で再生成してください。
+
+## 内部処理
+
+1. `gh issue view` で issue を解決（番号でも URL でも可）。
+2. base ブランチを解決（`--base` の値 or リポジトリの既定ブランチ）。
+3. ラベルとタイトルからローカルブランチ名を導出（上記参照）。
+4. 同名のローカルブランチが既に存在する場合は中断。
+5. base ブランチを `origin` から `git fetch`。
+6. `vibe start <branch> --base <base>` に処理を引き渡し、worktree を作成。
+
+[`gh vibe shell-setup`](/ja/commands/shell-setup/) と組み合わせると、成功時
+にシェルが自動で worktree に `cd` します。

@@ -6,7 +6,11 @@ import {
   worktreePathForBranch,
 } from "../lib/git.ts";
 import { getShellMode } from "../lib/runtime.ts";
-import { assertSafeShellPath, shellQuote } from "../lib/shell.ts";
+import {
+  assertSafeShellPath,
+  emitShellCommand,
+  shellQuote,
+} from "../lib/shell.ts";
 
 export interface ReviewOptions {
   prRef: string;
@@ -49,21 +53,6 @@ const defaultDeps: ReviewDeps = {
   isShellMode: () => getShellMode(),
   isStdoutTty: () => process.stdout.isTTY === true,
 };
-
-/**
- * The single sanctioned helper for writing to stdout in shell mode. Any other
- * code path that wants to surface text to the user MUST use `log` (stderr).
- *
- * The output is fenced with magic sentinels so the shell wrapper can
- * distinguish "this is a script to eval" from arbitrary stdout it might
- * otherwise dump back to the terminal.
- */
-function emitShellCommand(
-  writeStdout: (s: string) => void,
-  cdLine: string,
-): void {
-  writeStdout(`# __ghvibe_v1_begin__\n${cdLine}\n# __ghvibe_v1_end__\n`);
-}
 
 export async function reviewCommand(
   opts: ReviewOptions,

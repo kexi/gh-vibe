@@ -63,4 +63,16 @@ gh vibe review https://github.com/owner/repo/pull/123
 gh vibe review 123 --dry-run
 ```
 
+## 5. issue から作業を開始する
+
+issue を、ラベルとタイトルから導出したブランチ上の worktree に変換します:
+
+```sh
+gh vibe issue 42
+```
+
+ブランチ名は `<type>/<num>-<slug>` の形式です。ラベル → type のマッピング
+表や `--type` / `--base` / `--dry-run` フラグの詳細は
+[`gh vibe issue`](/ja/commands/issue/) を参照してください。
+
 詳細は[コマンドリファレンス](/ja/commands/review/)を参照してください。

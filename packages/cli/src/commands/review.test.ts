@@ -244,7 +244,7 @@ describe("reviewCommand", () => {
 
     await expect(
       reviewCommand({ prRef: "123", dryRun: false }, deps),
-    ).rejects.toThrow("control characters");
+    ).rejects.toThrow("control or format characters");
     expect(stdoutChunks).toEqual([]);
   });
 
@@ -266,7 +266,7 @@ describe("reviewCommand", () => {
 
       await expect(
         reviewCommand({ prRef: "123", dryRun: false }, deps),
-      ).rejects.toThrow("control characters");
+      ).rejects.toThrow("control or format characters");
       expect(stdoutChunks).toEqual([]);
     },
   );

@@ -23,6 +23,10 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe review 123` fetches the PR head branch (fork PRs included) and
     creates a vibe worktree via `vibe start --reuse`.
   </Card>
+  <Card title="Issue → worktree" icon="bookmark">
+    `gh vibe issue 42` derives a `<type>/<num>-<slug>` branch from the
+    issue's labels and title and creates a vibe worktree on it.
+  </Card>
   <Card title="Shell auto-cd" icon="terminal">
     Install the shell snippet — bash, zsh, fish, or PowerShell — and
     `gh vibe review` will `cd` your shell into the freshly-created worktree
@@ -43,8 +47,9 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
 ```sh
 gh extension install kexi/gh-vibe
 
-# Optional: cd into the worktree after creating it
-eval "$(gh vibe shell-setup)" >> ~/.zshrc
+# Optional: add this line to ~/.zshrc (or ~/.bashrc) so your shell cd's
+# into the worktree after `gh vibe review` / `gh vibe issue` succeeds:
+eval "$(gh vibe shell-setup)"
 
 gh vibe review 123
 ```

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { ExecError } from "./exec.ts";
-import { formatGitError, parseWorktreeListZ } from "./git.ts";
+import {
+  assertValidRefName,
+  fetchBranch,
+  formatGitError,
+  getDefaultBranch,
+  parseWorktreeListZ,
+} from "./git.ts";
 
 function makeExecError(stderr: string, stdout = "", exitCode = 128): ExecError {
   return new ExecError({
@@ -142,5 +148,119 @@ describe("parseWorktreeListZ", () => {
       ],
     ]);
     expect(parseWorktreeListZ(out, "feature")).toBeNull();
+  });
+});
+
+describe("fetchBranch", () => {
+  test("argv contains the `--` separator before the refspec", async () => {
+    const calls: Array<[string, string[]]> = [];
+    const fakeExec = async (cmd: string, args: string[]) => {
+      calls.push([cmd, args]);
+      return "";
+    };
+
+    await fetchBranch("origin", "feature", fakeExec);
+
+    expect(calls).toEqual([["git", ["fetch", "origin", "--", "feature"]]]);
+  });
+
+  test("translates 'couldn't find remote ref' into the friendly message", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "git",
+        args,
+        stdout: "",
+        stderr: "fatal: couldn't find remote ref feature\n",
+        exitCode: 128,
+      });
+    };
+
+    await expect(
+      fetchBranch("origin", "feature", fakeExec),
+    ).rejects.toThrow("Branch 'feature' not found on remote 'origin'.");
+  });
+});
+
+describe("getDefaultBranch", () => {
+  test("happy path: strips the `origin/` prefix", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) => "origin/main\n";
+    expect(await getDefaultBranch(fakeExec)).toBe("main");
+  });
+
+  test("'is not a symbolic ref' is translated to a friendly hint", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "git",
+        args,
+        stdout: "",
+        stderr: "fatal: ref refs/remotes/origin/HEAD is not a symbolic ref\n",
+        exitCode: 1,
+      });
+    };
+
+    await expect(getDefaultBranch(fakeExec)).rejects.toThrow(
+      /Could not determine default branch/,
+    );
+    await expect(getDefaultBranch(fakeExec)).rejects.toThrow(
+      /git remote set-head origin --auto/,
+    );
+  });
+
+  // SECURITY: raw stderr (which may contain tokens) must never reach the
+  // user-facing error message. The generic-fallback branch must mask secrets.
+  test("does NOT leak raw stderr (e.g. embedded gh token) into the thrown message", async () => {
+    const token = "ghp_FAKETOKENVALUE1234567890abcdEFGH";
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "git",
+        args,
+        stdout: "",
+        // Generic-looking failure (not the symbolic-ref pattern) so we exercise
+        // the fallback branch.
+        stderr: `fatal: unable to access 'https://x:${token}@github.com/foo/bar': 403\n`,
+        exitCode: 1,
+      });
+    };
+
+    try {
+      await getDefaultBranch(fakeExec);
+      throw new Error("expected getDefaultBranch to throw");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).not.toContain(token);
+      expect(message).toContain("***@github.com");
+    }
+  });
+});
+
+describe("assertValidRefName", () => {
+  test.each([
+    ["plain branch", "main"],
+    ["slashed branch", "feature/foo"],
+    // `feature.lockfile` does NOT end the segment in `.lock`, only contains it
+    // as a prefix; git accepts this and so must we.
+    ["segment with .lock prefix but other suffix", "feature.lockfile"],
+  ])("accepts %s", (_label, name) => {
+    expect(() => assertValidRefName(name)).not.toThrow();
+  });
+
+  test.each([
+    ["dash-prefixed option-looking", "--upload-pack=evil"],
+    ["empty string", ""],
+    ["embedded space", "foo bar"],
+    ["double dot", "foo..bar"],
+    // New cases added when we replaced the `git check-ref-format` subprocess
+    // with an inline regex; sanity-check the rules we now enforce ourselves.
+    ["reflog sequence @{", "@{foo}"],
+    ["segment starting with '.'", "foo/.bar"],
+    ["trailing slash", "foo/"],
+    [".lock suffix", "feature.lock"],
+    // R1 regression coverage: real `git check-ref-format --allow-onelevel`
+    // rejects these, the previous regex did not.
+    ["leading slash", "/foo"],
+    ["mid-path .lock component", "foo.lock/bar"],
+    ["leading .lock component", ".lock/bar"],
+  ])("rejects %s", (_label, name) => {
+    expect(() => assertValidRefName(name)).toThrow(/Invalid ref name/);
   });
 });
