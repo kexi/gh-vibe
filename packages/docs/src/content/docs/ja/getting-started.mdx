@@ -33,6 +33,12 @@ gh extension install kexi/gh-vibe
 ```sh
 # ~/.bashrc or ~/.zshrc
 eval "$(gh vibe shell-setup)"
+
+# fish — ~/.config/fish/config.fish
+gh vibe shell-setup --shell=fish | source
+
+# PowerShell — $PROFILE
+gh vibe shell-setup --shell=pwsh | Out-String | Invoke-Expression
 ```
 
 シェルを再読み込みしてから:

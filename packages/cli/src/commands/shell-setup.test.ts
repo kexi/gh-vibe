@@ -1,46 +1,104 @@
 import { describe, expect, test } from "bun:test";
 import {
-  SHELL_SETUP_SNIPPET,
+  SHELL_SETUP_SNIPPETS,
+  SUPPORTED_SHELLS,
+  type ShellKind,
+  detectShell,
   shellSetupCommand,
+  shellSetupSnippet,
 } from "./shell-setup.ts";
 
 describe("shellSetupCommand", () => {
-  test("writes the canonical snippet exactly once and returns 0", () => {
-    const chunks: string[] = [];
-    const code = shellSetupCommand({
-      writeStdout: (s) => chunks.push(s),
-    });
-    expect(code).toBe(0);
-    expect(chunks).toEqual([SHELL_SETUP_SNIPPET]);
+  test("writes the snippet for the chosen shell exactly once and returns 0", () => {
+    for (const kind of SUPPORTED_SHELLS) {
+      const chunks: string[] = [];
+      const code = shellSetupCommand(kind, {
+        writeStdout: (s) => chunks.push(s),
+      });
+      expect(code).toBe(0);
+      expect(chunks).toEqual([shellSetupSnippet(kind)]);
+    }
   });
 });
 
-describe("SHELL_SETUP_SNIPPET content", () => {
-  test("invokes the real binary via `command gh`, never recursing", () => {
-    expect(SHELL_SETUP_SNIPPET).toContain("command gh");
+describe("shellSetupSnippet: contract shared by every shell", () => {
+  // The wrapper must always shell out to the real binary via the calling
+  // shell's equivalent of `command gh` / `& $ghBinary.Source` — never recurse
+  // through the function it just defined.
+  const recurseGuard: Record<ShellKind, string> = {
+    bash: "command gh",
+    zsh: "command gh",
+    fish: "command gh",
+    pwsh: "$ghBinary.Source",
+  };
+
+  for (const kind of SUPPORTED_SHELLS) {
+    describe(`${kind}`, () => {
+      const snippet = shellSetupSnippet(kind);
+
+      test("invokes the real binary without recursing through the wrapper", () => {
+        expect(snippet).toContain(recurseGuard[kind]);
+      });
+
+      test("opts the binary into shell mode via GH_VIBE_SHELL=v1", () => {
+        expect(snippet).toContain("GH_VIBE_SHELL");
+        expect(snippet).toContain("v1");
+      });
+
+      test("only acts on output fenced by the v1 begin/end sentinels", () => {
+        expect(snippet).toContain("# __ghvibe_v1_begin__");
+        expect(snippet).toContain("# __ghvibe_v1_end__");
+      });
+
+      test("guards against double-loading", () => {
+        expect(snippet).toContain("_GH_VIBE_SHELL_SETUP_LOADED");
+      });
+
+      test("detects an existing gh function/alias before installing", () => {
+        // The exact probe differs per shell, but every snippet must emit the
+        // shared warning string on the bail-out path.
+        expect(snippet).toContain(
+          "existing gh function/alias detected",
+        );
+      });
+    });
+  }
+});
+
+describe("shellSetupSnippet: per-shell specifics", () => {
+  test("bash/zsh: only triggers wrapper behavior for the `vibe` subcommand", () => {
+    expect(SHELL_SETUP_SNIPPETS.bash).toContain('[ "$1" = "vibe" ]');
+    expect(SHELL_SETUP_SNIPPETS.zsh).toContain('[ "$1" = "vibe" ]');
   });
 
-  test("opts the binary into shell mode via GH_VIBE_SHELL=v1", () => {
-    expect(SHELL_SETUP_SNIPPET).toContain("GH_VIBE_SHELL=v1");
+  test("fish: dispatches on $argv[1] = vibe", () => {
+    expect(SHELL_SETUP_SNIPPETS.fish).toContain('"$argv[1]" = "vibe"');
   });
 
-  test("only eval's output fenced by the v1 begin/end sentinels", () => {
-    expect(SHELL_SETUP_SNIPPET).toContain(": __ghvibe_v1_begin__");
-    expect(SHELL_SETUP_SNIPPET).toContain(": __ghvibe_v1_end__");
+  test("pwsh: dispatches on $args[0] -eq 'vibe'", () => {
+    expect(SHELL_SETUP_SNIPPETS.pwsh).toContain("$args[0] -eq 'vibe'");
   });
 
-  test("guards against double-loading", () => {
-    expect(SHELL_SETUP_SNIPPET).toContain("_GH_VIBE_SHELL_SETUP_LOADED");
+  test("bash and zsh share one snippet (POSIX-compatible)", () => {
+    expect(SHELL_SETUP_SNIPPETS.bash).toBe(SHELL_SETUP_SNIPPETS.zsh);
+  });
+});
+
+describe("detectShell", () => {
+  test("PowerShell wins via $PSModulePath even when $SHELL is unset", () => {
+    expect(detectShell({ PSModulePath: "/some/pwsh/modules" })).toBe("pwsh");
   });
 
-  test("detects an existing gh function or alias before installing", () => {
-    expect(SHELL_SETUP_SNIPPET).toContain("gh is a function");
-    expect(SHELL_SETUP_SNIPPET).toContain("alias gh");
+  test("recognises common $SHELL basenames", () => {
+    expect(detectShell({ SHELL: "/bin/bash" })).toBe("bash");
+    expect(detectShell({ SHELL: "/usr/bin/zsh" })).toBe("zsh");
+    expect(detectShell({ SHELL: "/opt/homebrew/bin/fish" })).toBe("fish");
+    expect(detectShell({ SHELL: "/usr/local/bin/pwsh" })).toBe("pwsh");
+    expect(detectShell({ SHELL: "/c/program files/powershell" })).toBe("pwsh");
   });
 
-  test("only triggers wrapper behavior for the `vibe` subcommand", () => {
-    // The wrapper must fall through to `command gh` for non-vibe args so it
-    // doesn't break `gh pr`, `gh repo`, etc.
-    expect(SHELL_SETUP_SNIPPET).toContain('[ "$1" = "vibe" ]');
+  test("falls back to bash when nothing matches", () => {
+    expect(detectShell({})).toBe("bash");
+    expect(detectShell({ SHELL: "/usr/bin/dash" })).toBe("bash");
   });
 });

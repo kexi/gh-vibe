@@ -32,12 +32,21 @@ default remote (`origin`) points at the PR's base repo.
 Prints a shell snippet that wraps `gh` so that `gh vibe review <PR>` will
 `cd` your shell into the freshly-created worktree on success.
 
-Install once in your shell rc file (bash / zsh):
+Install once in your shell rc / profile file:
 
 ```sh
-# ~/.bashrc or ~/.zshrc
+# bash / zsh — ~/.bashrc or ~/.zshrc
 eval "$(gh vibe shell-setup)"
+
+# fish — ~/.config/fish/config.fish
+gh vibe shell-setup --shell=fish | source
+
+# PowerShell — $PROFILE
+gh vibe shell-setup --shell=pwsh | Out-String | Invoke-Expression
 ```
+
+Without `--shell`, the calling shell is auto-detected from `$SHELL` (or
+`$PSModulePath` for PowerShell).
 
 After reloading the shell:
 
@@ -47,7 +56,7 @@ gh vibe review 123    # creates the worktree AND cd's you into it
 
 Notes:
 
-- Supports `bash` and `zsh`. Other shells may work but are not tested.
+- Supports `bash`, `zsh`, `fish`, and PowerShell 7+ (`pwsh`).
 - The wrapper detects an existing user-defined `gh` function or alias and
   refuses to install in that case (prints a warning to stderr).
 - The wrapper only `eval`s output fenced with the gh-vibe v1 sentinels, so

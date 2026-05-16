@@ -62,7 +62,7 @@ function emitShellCommand(
   writeStdout: (s: string) => void,
   cdLine: string,
 ): void {
-  writeStdout(`: __ghvibe_v1_begin__\n${cdLine}\n: __ghvibe_v1_end__\n`);
+  writeStdout(`# __ghvibe_v1_begin__\n${cdLine}\n# __ghvibe_v1_end__\n`);
 }
 
 export async function reviewCommand(

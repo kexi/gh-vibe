@@ -6,13 +6,37 @@ description: Print a shell snippet that auto-cd's into the freshly-created workt
 Prints a shell snippet that wraps `gh` so that `gh vibe review <PR>` will
 `cd` your shell into the freshly-created worktree on success.
 
+## Usage
+
+```sh
+gh vibe shell-setup [--shell=<bash|zsh|fish|pwsh>]
+```
+
+Without `--shell`, the calling shell is auto-detected from `$SHELL` (or
+`$PSModulePath` for PowerShell). Pass `--shell=` explicitly when generating
+a snippet to commit to a different shell's rc file.
+
 ## Install
 
-Add this one-liner to your shell rc file:
+### bash / zsh
 
 ```sh
 # ~/.bashrc or ~/.zshrc
 eval "$(gh vibe shell-setup)"
+```
+
+### fish
+
+```fish
+# ~/.config/fish/config.fish
+gh vibe shell-setup --shell=fish | source
+```
+
+### PowerShell
+
+```powershell
+# $PROFILE
+gh vibe shell-setup --shell=pwsh | Out-String | Invoke-Expression
 ```
 
 After reloading the shell:
@@ -23,19 +47,26 @@ gh vibe review 123    # creates the worktree AND cd's you into it
 
 ## Supported shells
 
-- `bash`
-- `zsh`
+| Shell | Tested |
+| --- | --- |
+| `bash` | ✅ `bash -n` parse-check + end-to-end |
+| `zsh` | ✅ `zsh -n` parse-check |
+| `fish` | ✅ `fish -n` parse-check |
+| `pwsh` (PowerShell 7+) | ✅ `[scriptblock]::Create` parse-check |
 
-Other shells may work but are not tested.
+`bash` and `zsh` share one POSIX-compatible snippet; `fish` and `pwsh` get
+shell-specific wrappers.
 
 ## Safety
 
-The shell-setup snippet is designed not to compromise your interactive shell:
+The shell-setup snippets are designed not to compromise your interactive
+shell:
 
 - The wrapper detects an existing user-defined `gh` function or alias and
   refuses to install in that case (prints a warning to stderr).
-- The wrapper only `eval`s output fenced with the `gh-vibe v1` sentinels, so
-  unrelated `gh` stdout can never be executed as shell code.
+- The wrapper only evaluates output fenced by the `# __ghvibe_v1_begin__` …
+  `# __ghvibe_v1_end__` sentinels (regular `#` comments in every supported
+  shell), so unrelated `gh` stdout can never be executed as shell code.
 - The binary itself only emits shell commands when invoked via the wrapper
   (it looks for `GH_VIBE_SHELL=v1` in env) **and** stdout is not a TTY. If
   you set the env var manually in an interactive shell, gh-vibe falls back
@@ -43,5 +74,5 @@ The shell-setup snippet is designed not to compromise your interactive shell:
 
 ## Uninstall
 
-Remove the `eval "$(gh vibe shell-setup)"` line from your shell rc file and
-reload the shell.
+Remove the corresponding line from your shell rc / profile file and reload
+the shell.
