@@ -6,6 +6,30 @@ export interface ExecResult {
   exitCode: number;
 }
 
+export class ExecError extends Error {
+  readonly cmd: string;
+  readonly args: string[];
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+
+  constructor(params: {
+    cmd: string;
+    args: string[];
+    stdout: string;
+    stderr: string;
+    exitCode: number;
+  }) {
+    super(`${params.cmd} exited with code ${params.exitCode}`);
+    this.name = "ExecError";
+    this.cmd = params.cmd;
+    this.args = params.args;
+    this.stdout = params.stdout;
+    this.stderr = params.stderr;
+    this.exitCode = params.exitCode;
+  }
+}
+
 export function exec(
   cmd: string,
   args: string[],
@@ -40,10 +64,15 @@ export async function execOrThrow(
   opts: { cwd?: string } = {},
 ): Promise<string> {
   const result = await exec(cmd, args, { stdio: "pipe", cwd: opts.cwd });
-  if (result.exitCode !== 0) {
-    throw new Error(
-      `Command failed (${cmd} ${args.join(" ")}): ${result.stderr || result.stdout}`,
-    );
+  const isFailed = result.exitCode !== 0;
+  if (isFailed) {
+    throw new ExecError({
+      cmd,
+      args,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+    });
   }
   return result.stdout;
 }
