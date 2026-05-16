@@ -1,6 +1,12 @@
-import { exec } from "../lib/exec.ts";
+import { type Stdio, exec } from "../lib/exec.ts";
 import { viewPullRequest } from "../lib/gh.ts";
-import { fetchBranch, localBranchExists } from "../lib/git.ts";
+import {
+  fetchBranch,
+  localBranchExists,
+  worktreePathForBranch,
+} from "../lib/git.ts";
+import { getShellMode } from "../lib/runtime.ts";
+import { assertSafeShellPath, shellQuote } from "../lib/shell.ts";
 
 export interface ReviewOptions {
   prRef: string;
@@ -9,23 +15,55 @@ export interface ReviewOptions {
 
 /**
  * Seams for `reviewCommand` so tests can inject mocks. Defaults wire up the
- * real gh / git / vibe callers.
+ * real gh / git / vibe callers plus the real stdout / TTY / env probes.
  */
 export interface ReviewDeps {
   viewPullRequest: typeof viewPullRequest;
   fetchBranch: typeof fetchBranch;
   localBranchExists: typeof localBranchExists;
+  worktreePathForBranch: typeof worktreePathForBranch;
   exec: typeof exec;
   log: (msg: string) => void;
+  /**
+   * Emit a single shell command line to stdout. Only ever called from inside
+   * the shell-mode branch and only through `emitShellCommand`; see the
+   * `emitShellCommand` doc-comment for the stdout discipline.
+   */
+  writeStdout: (s: string) => void;
+  isShellMode: () => boolean;
+  isStdoutTty: () => boolean;
 }
 
 const defaultDeps: ReviewDeps = {
   viewPullRequest,
   fetchBranch,
   localBranchExists,
+  worktreePathForBranch,
   exec,
   log: (msg) => console.error(msg),
+  // GRACE NOTE: the *only* `process.stdout.write` call site outside the
+  // shell-setup snippet emitter — see `emitShellCommand` below.
+  writeStdout: (s) => {
+    process.stdout.write(s);
+  },
+  isShellMode: () => getShellMode(),
+  isStdoutTty: () => process.stdout.isTTY === true,
 };
+
+/**
+ * The single sanctioned helper for writing to stdout in shell mode. Any other
+ * code path that wants to surface text to the user MUST use `log` (stderr).
+ *
+ * The output is fenced with magic sentinels so the shell wrapper can
+ * distinguish "this is a script to eval" from arbitrary stdout it might
+ * otherwise dump back to the terminal.
+ */
+function emitShellCommand(
+  writeStdout: (s: string) => void,
+  cdLine: string,
+): void {
+  writeStdout(`: __ghvibe_v1_begin__\n${cdLine}\n: __ghvibe_v1_end__\n`);
+}
 
 export async function reviewCommand(
   opts: ReviewOptions,
@@ -74,8 +112,36 @@ export async function reviewCommand(
     return 0;
   }
 
+  // In shell mode the parent shell will be eval'ing our stdout, so vibe's own
+  // stdout must not leak into it. Discard vibe stdout, keep stderr inherited
+  // so progress / errors still reach the user.
+  const isShellMode = deps.isShellMode();
+  const vibeStdio: Stdio = isShellMode
+    ? ["inherit", "ignore", "inherit"]
+    : "inherit";
   const result = await deps.exec("vibe", ["start", localBranch, "--reuse"], {
-    stdio: "inherit",
+    stdio: vibeStdio,
   });
-  return result.exitCode;
+  const isVibeFailed = result.exitCode !== 0;
+  if (isVibeFailed) {
+    return result.exitCode;
+  }
+
+  if (!isShellMode) {
+    return 0;
+  }
+
+  // Shell mode: hand the parent shell a `cd` to the worktree. Any failure
+  // path returns non-zero so the wrapper's `if [ $status -eq 0 ]` guard skips
+  // the eval and the user's shell stays put.
+  const worktreePath = await deps.worktreePathForBranch(localBranch);
+  if (!worktreePath) {
+    deps.log(
+      `Could not find a worktree for branch '${localBranch}' (cd skipped).`,
+    );
+    return 1;
+  }
+  assertSafeShellPath(worktreePath);
+  emitShellCommand(deps.writeStdout, `cd ${shellQuote(worktreePath)}`);
+  return 0;
 }
