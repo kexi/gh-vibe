@@ -1,4 +1,5 @@
 import { ExecError, execOrThrow } from "./exec.ts";
+import { maskSecrets, stripAnsi } from "./format.ts";
 
 export interface PullRequest {
   number: number;
@@ -29,10 +30,8 @@ export function formatGhError(
   err: ExecError,
   ctx: { prRef?: string; ownerRepo?: string },
 ): string {
-  // Strip ANSI escape sequences (e.g. color codes) before any matching so that
-  // gh's colorized output does not break our heuristics or leak into messages.
-  const cleanStderr = err.stderr.replace(/\x1b\[[0-9;]*m/g, "");
-  const cleanStdout = err.stdout.replace(/\x1b\[[0-9;]*m/g, "");
+  const cleanStderr = stripAnsi(err.stderr);
+  const cleanStdout = stripAnsi(err.stdout);
 
   const isPrNotFound = cleanStderr.includes(
     "Could not resolve to a PullRequest",
@@ -53,7 +52,7 @@ export function formatGhError(
   // in its error output, strip it so internal field names don't leak to users.
   const errorOutput = (cleanStderr || cleanStdout).trim();
   const stripped = errorOutput.replace(/--json \S+/g, "").replace(/\s+/g, " ").trim();
-  return stripped || `gh exited with code ${err.exitCode}`;
+  return maskSecrets(stripped) || `gh exited with code ${err.exitCode}`;
 }
 
 /**
