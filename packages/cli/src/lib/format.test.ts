@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { maskSecrets, stripAnsi } from "./format.ts";
+import { maskSecrets, sanitizeForLog, stripAnsi } from "./format.ts";
 
 describe("stripAnsi", () => {
   test("removes color codes", () => {
@@ -55,5 +55,27 @@ describe("maskSecrets", () => {
   test("leaves short token-shaped strings alone", () => {
     // Below the 20-char floor; not confidently a token.
     expect(maskSecrets("ghp_short")).toBe("ghp_short");
+  });
+});
+
+describe("sanitizeForLog", () => {
+  test("strips ANSI sequences", () => {
+    expect(sanitizeForLog("\x1b[31mred\x1b[0m text")).toBe("red text");
+  });
+
+  test("replaces U+202E (RIGHT-TO-LEFT OVERRIDE) with '?'", () => {
+    expect(sanitizeForLog("a‮b")).toBe("a?b");
+  });
+
+  test("replaces NUL and other Cc characters with '?'", () => {
+    expect(sanitizeForLog("a\x00b")).toBe("a?b");
+    expect(sanitizeForLog("a\x07b")).toBe("a?b");
+    expect(sanitizeForLog("a\x1bb")).toBe("a?b");
+  });
+
+  test("passes through normal ASCII and Japanese unchanged", () => {
+    expect(sanitizeForLog("hello")).toBe("hello");
+    expect(sanitizeForLog("こんにちは")).toBe("こんにちは");
+    expect(sanitizeForLog("/repos/my-repo")).toBe("/repos/my-repo");
   });
 });

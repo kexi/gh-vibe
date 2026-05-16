@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ExecError } from "./exec.ts";
-import { formatGhError, viewIssue } from "./gh.ts";
+import { PrNotFoundError, formatGhError, viewIssue, viewPullRequest } from "./gh.ts";
 
 function makeExecError(stderr: string, stdout = "", exitCode = 1): ExecError {
   return new ExecError({
@@ -140,6 +140,102 @@ describe("formatGhError", () => {
       "GraphQL: Could not resolve to a PullRequest with the number of 417.\n",
     );
     expect(formatGhError(err, { prRef: "417" })).toBe("PR #417 not found.");
+  });
+});
+
+describe("viewPullRequest", () => {
+  // R-3: pin that the third `_exec` parameter has a production default
+  // (`execOrThrow`). The arity check guards against a refactor that
+  // accidentally drops the `= execOrThrow` default — JS reports `.length`
+  // as the number of params before the first defaulted one, so it MUST be
+  // 2 (prRef, ownerRepo).
+  test("has arity 2 (third _exec parameter is defaulted)", () => {
+    expect(viewPullRequest.length).toBe(2);
+  });
+
+  // Smoke: invoking with a one-shot injected exec returning parseable JSON
+  // must NOT throw a TypeError synchronously. Without the test host needing
+  // a real `gh` binary, this still confirms the function is callable with
+  // the seam plumbed correctly.
+  test("does not throw TypeError when invoked with injected exec", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) =>
+      JSON.stringify({
+        number: 1,
+        title: "t",
+        url: "u",
+        headRefName: "h",
+        baseRefName: "b",
+        isCrossRepository: false,
+        headRepository: { name: "r" },
+        headRepositoryOwner: { login: "o" },
+        state: "OPEN",
+      });
+    let threwTypeError = false;
+    try {
+      await viewPullRequest("1", undefined, fakeExec);
+    } catch (err) {
+      if (err instanceof TypeError) threwTypeError = true;
+    }
+    expect(threwTypeError).toBe(false);
+  });
+
+  test("throws PrNotFoundError when stderr matches 'Could not resolve to a PullRequest'", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr:
+          "GraphQL: Could not resolve to a PullRequest with the number of 417.\n",
+        exitCode: 1,
+      });
+    };
+
+    let caught: unknown;
+    try {
+      await viewPullRequest("417", undefined, fakeExec);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PrNotFoundError);
+    expect((caught as Error).message).toBe("PR #417 not found.");
+  });
+
+  test("throws plain Error (NOT PrNotFoundError) for unrelated failures", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr: "something else failed\n",
+        exitCode: 1,
+      });
+    };
+
+    let caught: unknown;
+    try {
+      await viewPullRequest("417", undefined, fakeExec);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught instanceof PrNotFoundError).toBe(false);
+  });
+
+  test("PrNotFoundError.message matches the existing formatGhError shape (with ownerRepo)", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr:
+          "GraphQL: Could not resolve to a PullRequest with the number of 1.\n",
+        exitCode: 1,
+      });
+    };
+    await expect(
+      viewPullRequest("1", "kexi/gh-vibe", fakeExec),
+    ).rejects.toThrow("PR #1 not found in kexi/gh-vibe.");
   });
 });
 

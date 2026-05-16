@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import type { CleanOptions } from "./commands/clean.ts";
 import type { IssueOptions } from "./commands/issue.ts";
 import type { ReviewOptions } from "./commands/review.ts";
 import { initShellMode, main, type MainDeps } from "./main.ts";
@@ -171,6 +172,7 @@ describe("main: issue subcommand argv parsing", () => {
     return {
       issueCommand: async (_opts: IssueOptions) => 0,
       reviewCommand: async (_opts: ReviewOptions) => 0,
+      cleanCommand: async (_opts: CleanOptions) => 0,
       ...overrides,
     };
   }
@@ -291,5 +293,286 @@ describe("main: issue subcommand argv parsing", () => {
     expect(captured).toEqual([
       { issueRef: "5", dryRun: true, base: "develop", type: "feat" },
     ]);
+  });
+});
+
+describe("main: review subcommand argv parsing", () => {
+  function makeMainDeps(overrides: Partial<MainDeps> = {}): MainDeps {
+    return {
+      issueCommand: async (_opts: IssueOptions) => 0,
+      reviewCommand: async (_opts: ReviewOptions) => 0,
+      cleanCommand: async (_opts: CleanOptions) => 0,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    setIsTty(false);
+  });
+
+  // F-3: review `-1` (dash-prefixed positional) must exit 2 the same way
+  // `issue -1` does — defense in depth against argv injection.
+  test("review -1 (dash prefix) → exit 2 with the same error shape as issue -1", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      reviewCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["review", "-1"], deps);
+
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  // R-4: `parseArgs` strips the `--` separator, so `123` becomes the only
+  // positional and reviewCommand is invoked with prRef="123". Pinning this
+  // behavior locks the argv contract — a parser swap to one that retains
+  // `--` as a positional would break the test and force a deliberate
+  // production-code response.
+  test("review -- 123 (argv separator): prRef='123', exits 0", async () => {
+    const captured: ReviewOptions[] = [];
+    const deps = makeMainDeps({
+      reviewCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["review", "--", "123"], deps);
+
+    expect(code).toBe(0);
+    expect(captured).toEqual([{ prRef: "123", dryRun: false }]);
+  });
+});
+
+describe("main: clean subcommand argv parsing", () => {
+  function makeMainDeps(overrides: Partial<MainDeps> = {}): MainDeps {
+    return {
+      issueCommand: async (_opts: IssueOptions) => 0,
+      reviewCommand: async (_opts: ReviewOptions) => 0,
+      cleanCommand: async (_opts: CleanOptions) => 0,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    setIsTty(false);
+  });
+
+  test("clean with no flags → defaults", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["clean"], deps);
+
+    expect(code).toBe(0);
+    expect(captured.length).toBe(1);
+    const opts = captured[0];
+    expect(opts.dryRun).toBe(false);
+    expect(opts.includeNoPr).toBe(false);
+    expect(opts.yes).toBe(false);
+    expect(opts.allowNoDefaultBranch).toBe(false);
+    expect(new Set(opts.state)).toEqual(new Set(["MERGED", "CLOSED"]));
+  });
+
+  test("--state=merged → state set is {MERGED}", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["clean", "--state=merged"], deps);
+
+    expect(code).toBe(0);
+    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED"]));
+  });
+
+  test("--state=foo → exit 2 with 'invalid --state value' on stderr", async () => {
+    const errorCalls: unknown[][] = [];
+    const consoleErrorOriginal = console.error;
+    console.error = ((...args: unknown[]) => {
+      errorCalls.push(args);
+    }) as typeof console.error;
+
+    let code: number;
+    try {
+      const deps = makeMainDeps();
+      code = await main(["clean", "--state=foo"], deps);
+    } finally {
+      console.error = consoleErrorOriginal;
+    }
+
+    expect(code).toBe(2);
+    const allErrors = errorCalls.map((args) => args.join(" ")).join("\n");
+    expect(allErrors).toContain("invalid --state value");
+  });
+
+  test("--state= (empty) → exit 2", async () => {
+    const deps = makeMainDeps();
+
+    const code = await main(["clean", "--state="], deps);
+
+    expect(code).toBe(2);
+  });
+
+  // R-6: --state boundary cases. Each test asserts the *current* behavior
+  // of `parseStateList` as routed through main(); these pin the contract
+  // end-to-end so a future parseStateList tweak that breaks one of these
+  // shapes is caught at the CLI boundary rather than just at the helper
+  // boundary.
+  test("--state='merged, closed' (whitespace after comma): {MERGED,CLOSED}", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["clean", "--state=merged, closed"], deps);
+    expect(code).toBe(0);
+    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED", "CLOSED"]));
+  });
+
+  test("--state='merged,merged,closed' (duplicate): deduped to {MERGED,CLOSED}", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["clean", "--state=merged,merged,closed"], deps);
+    expect(code).toBe(0);
+    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED", "CLOSED"]));
+  });
+
+  test("--state='merged,,closed' (empty middle token): exit 2", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["clean", "--state=merged,,closed"], deps);
+    expect(code).toBe(2);
+  });
+
+  test("--state='   ' (all-whitespace): exit 2", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["clean", "--state=   "], deps);
+    expect(code).toBe(2);
+  });
+
+  test("--state=MERGED (uppercase): {MERGED}", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["clean", "--state=MERGED"], deps);
+    expect(code).toBe(0);
+    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED"]));
+  });
+
+  test("--state=Merged (mixed case): {MERGED}", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["clean", "--state=Merged"], deps);
+    expect(code).toBe(0);
+    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED"]));
+  });
+
+  test("--state '' (space-form empty value): exit 2", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["clean", "--state", ""], deps);
+    expect(code).toBe(2);
+  });
+
+  test("-n → dryRun=true", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["clean", "-n"], deps);
+
+    expect(code).toBe(0);
+    expect(captured[0].dryRun).toBe(true);
+  });
+
+  test("--include-no-pr → includeNoPr=true", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["clean", "--include-no-pr"], deps);
+
+    expect(code).toBe(0);
+    expect(captured[0].includeNoPr).toBe(true);
+  });
+
+  test("--yes → yes=true", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["clean", "--yes"], deps);
+
+    expect(code).toBe(0);
+    expect(captured[0].yes).toBe(true);
+  });
+
+  test("--allow-no-default-branch → allowNoDefaultBranch=true", async () => {
+    const captured: CleanOptions[] = [];
+    const deps = makeMainDeps({
+      cleanCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+
+    const code = await main(["clean", "--allow-no-default-branch"], deps);
+
+    expect(code).toBe(0);
+    expect(captured[0].allowNoDefaultBranch).toBe(true);
+  });
+
+  test("clean -h → exit 0 with help, does not dispatch", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      cleanCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+
+    const code = await main(["clean", "-h"], deps);
+
+    expect(code).toBe(0);
+    expect(invoked).toBe(false);
   });
 });

@@ -21,6 +21,21 @@ export interface Issue {
   labels: Array<{ name: string }>;
 }
 
+/**
+ * Thrown by `viewPullRequest` when gh reports the GraphQL "Could not resolve
+ * to a PullRequest" shape. Lets callers (e.g. `clean`) distinguish "branch has
+ * no PR" from a transient gh failure without re-parsing the error message.
+ *
+ * Subclasses `Error` so existing `Error`-catching call sites (`review.ts`,
+ * `issue.ts`) keep working unchanged.
+ */
+export class PrNotFoundError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "PrNotFoundError";
+  }
+}
+
 const PR_FIELDS = [
   "number",
   "title",
@@ -93,9 +108,11 @@ export function formatGhError(err: ExecError, ctx: GhErrorContext): string {
 export async function viewPullRequest(
   prRef: string,
   ownerRepo?: string,
+  // Test seam; not part of the public API.
+  _exec: typeof execOrThrow = execOrThrow,
 ): Promise<PullRequest> {
   try {
-    const out = await execOrThrow("gh", [
+    const out = await _exec("gh", [
       "pr",
       "view",
       prRef,
@@ -106,9 +123,18 @@ export async function viewPullRequest(
   } catch (err) {
     const isExecError = err instanceof ExecError;
     if (isExecError) {
+      const message = formatGhError(err, { prRef, ownerRepo });
+      // Distinguish "no PR for this branch" from other gh failures so callers
+      // like `clean` can act on it without re-parsing the message string.
+      const isPrNotFound = stripAnsi(err.stderr).includes(
+        "Could not resolve to a PullRequest",
+      );
+      if (isPrNotFound) {
+        throw new PrNotFoundError(message, { cause: err });
+      }
       // Keep the raw ExecError as `cause` so a future --verbose flag can
       // expose stderr/stdout without re-running the command.
-      throw new Error(formatGhError(err, { prRef, ownerRepo }), { cause: err });
+      throw new Error(message, { cause: err });
     }
     throw err;
   }

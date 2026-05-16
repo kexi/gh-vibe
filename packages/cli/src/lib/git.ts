@@ -182,3 +182,64 @@ export async function worktreePathForBranch(
   ]);
   return parseWorktreeListZ(out, branch);
 }
+
+export interface WorktreeEntry {
+  path: string;
+  branch: string | null;
+  isMain: boolean;
+  isBare: boolean;
+  isDetached: boolean;
+}
+
+/** @internal Exported for unit tests; not part of the public API. */
+export function parseWorktreeListAll(out: string): WorktreeEntry[] {
+  const isEmpty = out.length === 0;
+  if (isEmpty) return [];
+  // `git worktree list --porcelain -z` uses NUL for line termination and a
+  // double-NUL between groups. The first group is the main worktree.
+  const groups = out.split("\0\0");
+  const entries: WorktreeEntry[] = [];
+  for (let i = 0; i < groups.length; i++) {
+    const lines = groups[i].split("\0").filter((line) => line.length > 0);
+    const isEmptyGroup = lines.length === 0;
+    if (isEmptyGroup) continue;
+    const worktreeLine = lines.find((line) => line.startsWith("worktree "));
+    if (!worktreeLine) continue;
+    const path = worktreeLine.slice("worktree ".length);
+    const isBare = lines.includes("bare");
+    const isDetached = lines.includes("detached");
+    const branchLine = lines.find((line) => line.startsWith("branch refs/heads/"));
+    const branch =
+      isBare || isDetached || !branchLine
+        ? null
+        : branchLine.slice("branch refs/heads/".length);
+    entries.push({
+      path,
+      branch,
+      isMain: entries.length === 0,
+      isBare,
+      isDetached,
+    });
+  }
+  return entries;
+}
+
+export async function listWorktrees(
+  // Test seam; not part of the public API.
+  _exec: typeof execOrThrow = execOrThrow,
+): Promise<WorktreeEntry[]> {
+  const out = await _exec("git", ["worktree", "list", "--porcelain", "-z"]);
+  return parseWorktreeListAll(out);
+}
+
+export async function getMainWorktreePath(
+  // Test seam; not part of the public API.
+  _exec: typeof execOrThrow = execOrThrow,
+): Promise<string> {
+  const entries = await listWorktrees(_exec);
+  const first = entries[0];
+  if (!first) {
+    throw new Error("Could not determine main worktree (no worktrees listed).");
+  }
+  return first.path;
+}

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExecResult } from "../lib/exec.ts";
 import type { PullRequest } from "../lib/gh.ts";
+import { PrNotFoundError } from "../lib/gh.ts";
 import { type ReviewDeps, reviewCommand } from "./review.ts";
 
 function makePr(overrides: Partial<PullRequest> = {}): PullRequest {
@@ -88,6 +89,29 @@ describe("reviewCommand", () => {
     await expect(
       reviewCommand({ prRef: "999", dryRun: false }, deps),
     ).rejects.toThrow("PR #999 not found.");
+  });
+
+  // R-2: when viewPullRequest throws an actual `PrNotFoundError` instance,
+  // reviewCommand must propagate it UNWRAPPED — message AND `instanceof`
+  // must both survive. Pins the cross-command contract: `clean.ts` and any
+  // future caller can reliably `catch ... if (err instanceof PrNotFoundError)`.
+  test("propagates PrNotFoundError instance unchanged (instanceof preserved)", async () => {
+    const original = new PrNotFoundError("PR #999 not found.");
+    const deps = makeDeps({
+      viewPullRequest: async () => {
+        throw original;
+      },
+    });
+
+    let caught: unknown;
+    try {
+      await reviewCommand({ prRef: "999", dryRun: false }, deps);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(PrNotFoundError);
+    expect((caught as Error).message).toBe("PR #999 not found.");
+    expect(caught).toBe(original);
   });
 
   test("fork PR: namespaces local branch under pr/<n>/<branch>", async () => {
