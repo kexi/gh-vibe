@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to (re)build, e.g. v0.0.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build and release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: jdx/mise-action@v2
+        env:
+          MISE_HTTP_TIMEOUT: "120"
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      - name: Cross-compile
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          targets=(
+            "bun-darwin-arm64  gh-vibe-darwin-arm64"
+            "bun-darwin-x64    gh-vibe-darwin-amd64"
+            "bun-linux-arm64   gh-vibe-linux-arm64"
+            "bun-linux-x64     gh-vibe-linux-amd64"
+            "bun-windows-x64   gh-vibe-windows-amd64.exe"
+          )
+          for entry in "${targets[@]}"; do
+            target=$(echo "$entry" | awk '{print $1}')
+            outfile=$(echo "$entry" | awk '{print $2}')
+            echo "Building $outfile for $target"
+            bun build --compile --minify --target="$target" \
+              --outfile="dist/$outfile" src/main.ts
+          done
+          ls -la dist/
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          gh release view "$tag" >/dev/null 2>&1 || \
+            gh release create "$tag" --title "$tag" --generate-notes
+          gh release upload "$tag" dist/* --clobber

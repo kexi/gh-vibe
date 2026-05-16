@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        env:
+          MISE_HTTP_TIMEOUT: "120"
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - name: Build smoke test
+        run: bun build --compile --outfile gh-vibe src/main.ts && ./gh-vibe --version

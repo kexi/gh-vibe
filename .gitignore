@@ -1,0 +1,10 @@
+node_modules/
+dist/
+gh-vibe
+gh-vibe-*
+*.tgz
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
