@@ -1,0 +1,47 @@
+---
+title: gh vibe shell-setup
+description: Print a shell snippet that auto-cd's into the freshly-created worktree.
+---
+
+Prints a shell snippet that wraps `gh` so that `gh vibe review <PR>` will
+`cd` your shell into the freshly-created worktree on success.
+
+## Install
+
+Add this one-liner to your shell rc file:
+
+```sh
+# ~/.bashrc or ~/.zshrc
+eval "$(gh vibe shell-setup)"
+```
+
+After reloading the shell:
+
+```sh
+gh vibe review 123    # creates the worktree AND cd's you into it
+```
+
+## Supported shells
+
+- `bash`
+- `zsh`
+
+Other shells may work but are not tested.
+
+## Safety
+
+The shell-setup snippet is designed not to compromise your interactive shell:
+
+- The wrapper detects an existing user-defined `gh` function or alias and
+  refuses to install in that case (prints a warning to stderr).
+- The wrapper only `eval`s output fenced with the `gh-vibe v1` sentinels, so
+  unrelated `gh` stdout can never be executed as shell code.
+- The binary itself only emits shell commands when invoked via the wrapper
+  (it looks for `GH_VIBE_SHELL=v1` in env) **and** stdout is not a TTY. If
+  you set the env var manually in an interactive shell, gh-vibe falls back
+  to normal mode with a warning.
+
+## Uninstall
+
+Remove the `eval "$(gh vibe shell-setup)"` line from your shell rc file and
+reload the shell.

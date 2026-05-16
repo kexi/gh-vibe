@@ -1,0 +1,54 @@
+---
+title: インストール
+description: gh-vibe を gh CLI 拡張としてインストールする
+---
+
+`gh-vibe` は [`gh` 拡張](https://cli.github.com/manual/gh_extension)として
+配布されており、GitHub Releases からダウンロードした単一バイナリで動作します。
+
+## インストール
+
+```sh
+gh extension install kexi/gh-vibe
+```
+
+`gh` は最新リリースを参照し、`gh-vibe-<os>-<arch>[.exe]` の命名規則に従って
+自分のプラットフォーム用のアセットを選びます。
+
+ビルド済みバイナリの対応プラットフォーム:
+
+- `darwin-arm64`, `darwin-amd64`
+- `linux-arm64`, `linux-amd64`
+- `windows-amd64`
+
+## アップグレード
+
+```sh
+gh extension upgrade gh-vibe
+```
+
+## アンインストール
+
+```sh
+gh extension remove gh-vibe
+```
+
+## 動作確認
+
+```sh
+gh vibe --version
+```
+
+## 前提ツール
+
+`gh-vibe` は 3 つの外部コマンドを呼び出します。いずれも `PATH` 上に
+インストールされている必要があります:
+
+| ツール | 用途 |
+| --- | --- |
+| [`gh`](https://cli.github.com/) | PR / Issue 情報の取得。`gh auth login` で認証してください。 |
+| [`git`](https://git-scm.com/) | PR の head ブランチを fetch するため。 |
+| [`vibe`](https://github.com/kexi/vibe) | `vibe start --reuse` 経由で gh-vibe が呼び出す worktree マネージャ。 |
+
+また、`gh vibe` は `origin` リモートが PR のベースリポジトリを指している
+git リポジトリの中から実行する必要があります。

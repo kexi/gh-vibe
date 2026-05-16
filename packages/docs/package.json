@@ -1,0 +1,23 @@
+{
+  "name": "gh-vibe-docs",
+  "type": "module",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "astro": "astro",
+    "check": "astro check",
+    "ci": "pnpm check && pnpm build"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.37.2",
+    "astro": "^5.6.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.6",
+    "typescript": "^5.9.3"
+  }
+}

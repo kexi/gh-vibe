@@ -28,7 +28,7 @@ jobs:
           MISE_HTTP_TIMEOUT: "120"
 
       - name: Install deps
-        run: bun install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Cross-compile
         run: |
@@ -45,8 +45,8 @@ jobs:
             target=$(echo "$entry" | awk '{print $1}')
             outfile=$(echo "$entry" | awk '{print $2}')
             echo "Building $outfile for $target"
-            bun build --compile --minify --target="$target" \
-              --outfile="dist/$outfile" src/main.ts
+            pnpm -C packages/cli exec bun build --compile --minify --target="$target" \
+              --outfile="../../dist/$outfile" src/main.ts
           done
           ls -la dist/
 

@@ -1,0 +1,49 @@
+---
+title: gh vibe review
+description: Fetch a PR's head branch and create a vibe worktree from it.
+---
+
+Fetches the PR's head branch (handling fork PRs by namespacing them under
+`pr/<number>/<branch>`) and creates a [vibe](https://github.com/kexi/vibe)
+worktree via `vibe start --reuse`.
+
+## Usage
+
+```sh
+gh vibe review <PR# | URL>
+```
+
+Both forms are accepted:
+
+```sh
+gh vibe review 123
+gh vibe review https://github.com/owner/repo/pull/123
+```
+
+## Flags
+
+### `--dry-run`
+
+Prints what would happen — the resolved branch, the fetch command, and the
+`vibe start` invocation — without making any changes.
+
+```sh
+gh vibe review 123 --dry-run
+```
+
+## Requirements
+
+- `gh`, `git`, and `vibe` available in `PATH`.
+- Run from inside a git repository whose default remote (`origin`) points at
+  the PR's base repo. Fork PRs are fetched into a namespaced ref
+  (`pr/<number>/<branch>`) so they cannot collide with upstream branches.
+
+## What it does
+
+1. Resolves the PR via `gh pr view` (number or URL accepted).
+2. Determines the head branch and whether the PR comes from a fork.
+3. `git fetch`es the head branch (under `pr/<number>/<branch>` for forks).
+4. Hands off to `vibe start --reuse <branch>` to create or update the worktree.
+
+Pair this with [`gh vibe shell-setup`](/commands/shell-setup/) so that your
+shell `cd`s into the worktree on success.

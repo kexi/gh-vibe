@@ -1,0 +1,50 @@
+---
+title: 開発
+description: gh-vibe のローカルビルド・テスト・リリース手順
+---
+
+`gh-vibe` は pnpm モノレポです。CLI は `packages/cli/`、ドキュメントサイト
+（このサイト）は `packages/docs/` に置かれています。
+
+## セットアップ
+
+```sh
+mise install            # .mise.toml に従って node, pnpm, bun を導入
+pnpm install            # ワークスペースの依存をインストール
+```
+
+## CLI を実行
+
+```sh
+pnpm -C packages/cli dev review 123 --dry-run
+```
+
+## テスト + 型チェック
+
+```sh
+pnpm -C packages/cli test    # bun test
+pnpm -C packages/cli check   # tsc --noEmit
+```
+
+## バイナリをビルド
+
+```sh
+pnpm -C packages/cli build   # リポジトリルートに ./gh-vibe を生成
+./gh-vibe --version
+```
+
+## ドキュメントを編集
+
+```sh
+pnpm -C packages/docs dev     # http://localhost:4321
+pnpm -C packages/docs build   # 静的成果物 → packages/docs/dist
+pnpm -C packages/docs check   # astro check
+```
+
+## リリース
+
+`v*` タグを push すると `release` ワークフローが `darwin-{arm64,amd64}`,
+`linux-{arm64,amd64}`, `windows-amd64` 向けにクロスコンパイルし、対応する
+GitHub Release にバイナリをアップロードします。`gh extension install` は
+`<name>-<os>-<arch>[.exe]` の命名規則からプラットフォームに合うアセットを
+選びます。
