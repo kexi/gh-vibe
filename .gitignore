@@ -1,8 +1,12 @@
 node_modules/
+packages/*/node_modules/
+packages/*/dist/
+packages/*/.astro/
 dist/
 gh-vibe
 gh-vibe-*
 *.tgz
+bun.lock
 .DS_Store
 
 # Editor

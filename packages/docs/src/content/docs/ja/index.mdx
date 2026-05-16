@@ -1,0 +1,51 @@
+---
+title: gh-vibe へようこそ
+description: GitHub の PR / Issue から vibe worktree を作る gh 拡張
+template: splash
+hero:
+  tagline: GitHub の PR をコマンド一発でレビュー用の vibe worktree に変換。
+  actions:
+    - text: クイックスタート
+      link: /ja/getting-started/
+      icon: right-arrow
+    - text: GitHub で見る
+      link: https://github.com/kexi/gh-vibe
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## 特長
+
+<CardGrid stagger>
+  <Card title="PR → worktree" icon="git-pull-request">
+    `gh vibe review 123` で PR の head ブランチ（fork PR も対応）を fetch
+    し、`vibe start --reuse` で worktree を生成します。
+  </Card>
+  <Card title="シェル自動 cd" icon="terminal">
+    シェル用スニペットを仕込めば、`gh vibe review` 成功時に
+    自動で作成済みの worktree に `cd` します。
+  </Card>
+  <Card title="既定で安全" icon="approve-check">
+    ラッパーはバージョン付きセンチネルで囲まれた出力のみを `eval` するため、
+    無関係な `gh` 標準出力がシェルコードとして実行されることはありません。
+  </Card>
+  <Card title="マルチプラットフォーム配布" icon="rocket">
+    darwin / linux / windows × arm64 / amd64 のビルド済みバイナリを
+    `gh extension install` で導入できます。
+  </Card>
+</CardGrid>
+
+## クイックスタート
+
+```sh
+gh extension install kexi/gh-vibe
+
+# 任意: 作成した worktree に自動で cd
+eval "$(gh vibe shell-setup)" >> ~/.zshrc
+
+gh vibe review 123
+```
+
+> `gh`、`git`、[`vibe`](https://github.com/kexi/vibe) が `PATH` に必要です。

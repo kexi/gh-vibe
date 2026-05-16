@@ -3,4 +3,6 @@
 [copy]
 dirs = [
     "./node_modules",
+    "packages/cli/node_modules",
+    "packages/docs/node_modules",
 ]

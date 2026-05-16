@@ -3,7 +3,13 @@ name: ci
 on:
   push:
     branches: [main, develop]
+    paths-ignore:
+      - "packages/docs/**"
+      - ".github/workflows/docs.yml"
   pull_request:
+    paths-ignore:
+      - "packages/docs/**"
+      - ".github/workflows/docs.yml"
 
 jobs:
   check:
@@ -13,7 +19,8 @@ jobs:
       - uses: jdx/mise-action@v2
         env:
           MISE_HTTP_TIMEOUT: "120"
-      - run: bun install --frozen-lockfile
-      - run: bun run check
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C packages/cli check
+      - run: pnpm -C packages/cli test
       - name: Build smoke test
-        run: bun build --compile --outfile gh-vibe src/main.ts && ./gh-vibe --version
+        run: pnpm -C packages/cli build && ./gh-vibe --version

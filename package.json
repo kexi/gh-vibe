@@ -1,17 +1,27 @@
 {
-  "name": "gh-vibe",
+  "name": "gh-vibe-monorepo",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "gh CLI extension for vibe — create git worktrees from PRs and issues",
-  "license": "Apache-2.0",
-  "scripts": {
-    "dev": "bun run src/main.ts",
-    "build": "bun build --compile --minify --outfile gh-vibe src/main.ts",
-    "check": "tsc --noEmit"
+  "description": "Monorepo for gh-vibe — a gh CLI extension that bridges GitHub PRs/issues and vibe worktrees",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kexi/gh-vibe.git"
   },
-  "devDependencies": {
-    "@types/bun": "^1.3.0",
-    "typescript": "^5.9.3"
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.26.2",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=10.0.0"
+  },
+  "scripts": {
+    "preinstall": "npx only-allow pnpm",
+    "dev": "pnpm -C packages/cli dev",
+    "build": "pnpm -C packages/cli build",
+    "check": "pnpm -C packages/cli check",
+    "test": "pnpm -C packages/cli test",
+    "ci": "pnpm run check && pnpm run test",
+    "check:docs": "pnpm -C packages/docs check && pnpm -C packages/docs build",
+    "check:all": "pnpm run ci && pnpm run check:docs"
   }
 }

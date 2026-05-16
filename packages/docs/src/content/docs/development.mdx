@@ -1,0 +1,49 @@
+---
+title: Development
+description: Build, test, and release gh-vibe locally.
+---
+
+`gh-vibe` is a pnpm monorepo. The CLI lives in `packages/cli/` and the
+documentation site (this one) in `packages/docs/`.
+
+## Setup
+
+```sh
+mise install            # installs node, pnpm, bun via .mise.toml
+pnpm install            # installs workspace deps
+```
+
+## Run the CLI
+
+```sh
+pnpm -C packages/cli dev review 123 --dry-run
+```
+
+## Tests + typecheck
+
+```sh
+pnpm -C packages/cli test    # bun test
+pnpm -C packages/cli check   # tsc --noEmit
+```
+
+## Build the binary
+
+```sh
+pnpm -C packages/cli build   # produces ./gh-vibe at the repo root
+./gh-vibe --version
+```
+
+## Work on the docs
+
+```sh
+pnpm -C packages/docs dev     # http://localhost:4321
+pnpm -C packages/docs build   # static output → packages/docs/dist
+pnpm -C packages/docs check   # astro check
+```
+
+## Releasing
+
+Push a `v*` tag. The `release` workflow cross-compiles binaries for
+`darwin-{arm64,amd64}`, `linux-{arm64,amd64}`, and `windows-amd64`, then
+uploads them to the matching GitHub Release. `gh extension install` picks the
+right asset by `<name>-<os>-<arch>[.exe]` naming.

@@ -1,0 +1,51 @@
+---
+title: Welcome to gh-vibe
+description: A gh CLI extension that bridges GitHub PRs/issues and vibe worktrees
+template: splash
+hero:
+  tagline: Turn a GitHub PR into a ready-to-review vibe worktree with one command.
+  actions:
+    - text: Get Started
+      link: /getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/kexi/gh-vibe
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components";
+
+## Features
+
+<CardGrid stagger>
+  <Card title="PR → worktree" icon="git-pull-request">
+    `gh vibe review 123` fetches the PR head branch (fork PRs included) and
+    creates a vibe worktree via `vibe start --reuse`.
+  </Card>
+  <Card title="Shell auto-cd" icon="terminal">
+    Install the shell snippet and `gh vibe review` will `cd` your shell into
+    the freshly-created worktree on success.
+  </Card>
+  <Card title="Safe by default" icon="approve-check">
+    The wrapper only `eval`s output fenced with versioned sentinels — unrelated
+    `gh` stdout can never be executed as shell code.
+  </Card>
+  <Card title="Cross-platform release" icon="rocket">
+    Prebuilt binaries for darwin / linux / windows × arm64 / amd64, installable
+    via `gh extension install`.
+  </Card>
+</CardGrid>
+
+## Quick Start
+
+```sh
+gh extension install kexi/gh-vibe
+
+# Optional: cd into the worktree after creating it
+eval "$(gh vibe shell-setup)" >> ~/.zshrc
+
+gh vibe review 123
+```
+
+> Requires `gh`, `git`, and [`vibe`](https://github.com/kexi/vibe) in your `PATH`.

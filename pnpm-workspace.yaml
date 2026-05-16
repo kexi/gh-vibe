@@ -1,0 +1,27 @@
+packages:
+  - "packages/*"
+
+# Delay newly-published versions for ~3 days so freshly-compromised packages
+# do not land in the lockfile via routine updates. (TanStack npm compromise
+# 2026-05-11 precedent.)
+minimumReleaseAge: 4320
+minimumReleaseAgeExclude:
+  - "@astrojs/*"
+  - "@types/*"
+
+# Block non-registry sources (github:user/repo, file:, http:, etc.) anywhere in
+# the dependency graph. Prevents the wormable optionalDependencies: github:<sha>
+# payload technique used in the 2026-05-11 TanStack npm compromise.
+blockExoticSubdeps: true
+
+# Refuse to run lifecycle scripts for any dependency by default. The
+# `onlyBuiltDependencies` allowlist of packages that may run install scripts
+# is intentionally kept in `.npmrc` so legacy `npm`/`yarn` consumers honour
+# the same allowlist.
+strictDepBuilds: true
+
+# `trustPolicy: no-downgrade` would catch packages that lost signed/provenance
+# evidence between releases — desirable in theory, but currently rejects
+# chokidar@4.0.3 (pulled in by @astrojs/check) which has no provenance even
+# though earlier 4.x releases did. Re-enable once the upstream chain restores
+# attestation, or pair with `pnpm.overrides` to pin a trusted version.

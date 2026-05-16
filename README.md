@@ -9,6 +9,8 @@ gh extension install kexi/gh-vibe
 
 > The repo is currently private — `gh` will use your existing auth to install.
 
+Full documentation: <https://gh-vibe.kexi.dev>
+
 ## Commands
 
 ### `gh vibe review <PR# | URL>`
@@ -57,12 +59,19 @@ Notes:
 
 ## Development
 
+This repo is a pnpm monorepo:
+
+- `packages/cli/` — the CLI (source for the `gh-vibe` binary).
+- `packages/docs/` — the Astro + Starlight documentation site.
+
 ```sh
-mise install         # installs bun via .mise.toml
-bun install
-bun run dev review 123 --dry-run
-bun run check        # tsc --noEmit
-bun run build        # produces ./gh-vibe (current platform)
+mise install                              # node, pnpm, bun from .mise.toml
+pnpm install                              # workspace deps
+pnpm -C packages/cli dev review 123 --dry-run
+pnpm -C packages/cli check                # tsc --noEmit
+pnpm -C packages/cli test                 # bun test
+pnpm -C packages/cli build                # produces ./gh-vibe at repo root
+pnpm -C packages/docs dev                 # docs site at http://localhost:4321
 ```
 
 ## Releasing

@@ -1,0 +1,50 @@
+---
+title: gh vibe review
+description: PR の head ブランチを fetch して vibe worktree を作成する
+---
+
+PR の head ブランチを fetch し（fork PR は `pr/<number>/<branch>` の名前空間
+に分離されます）、`vibe start --reuse` 経由で
+[vibe](https://github.com/kexi/vibe) worktree を作成します。
+
+## 使い方
+
+```sh
+gh vibe review <PR# | URL>
+```
+
+番号でも URL でも受け付けます:
+
+```sh
+gh vibe review 123
+gh vibe review https://github.com/owner/repo/pull/123
+```
+
+## フラグ
+
+### `--dry-run`
+
+実際の変更は加えず、解決されたブランチ名、fetch コマンド、`vibe start`
+の呼び出し内容だけを表示します。
+
+```sh
+gh vibe review 123 --dry-run
+```
+
+## 必要条件
+
+- `gh`、`git`、`vibe` が `PATH` 上に存在すること。
+- 既定のリモート（`origin`）が PR のベースリポジトリを指す git リポジトリ
+  の中から実行すること。fork PR は `pr/<number>/<branch>` という名前空間
+  付きの参照に fetch されるため、上流ブランチと衝突しません。
+
+## 内部処理
+
+1. `gh pr view` で PR を解決（番号でも URL でも可）。
+2. head ブランチと fork PR かどうかを判定。
+3. head ブランチを `git fetch`（fork なら `pr/<number>/<branch>` に格納）。
+4. `vibe start --reuse <branch>` に処理を引き渡し、worktree を作成または
+   再利用。
+
+[`gh vibe shell-setup`](/ja/commands/shell-setup/) と組み合わせると、成功時
+にシェルが自動で worktree に `cd` します。

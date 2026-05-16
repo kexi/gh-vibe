@@ -1,0 +1,60 @@
+---
+title: クイックスタート
+description: gh-vibe をインストールして最初の PR を vibe worktree として開く
+---
+
+`gh-vibe` は GitHub の Pull Request や Issue を
+[vibe](https://github.com/kexi/vibe) の worktree に変換する
+[`gh`](https://cli.github.com/) 拡張です。レビュー用やローカル開発用に
+worktree をすぐに用意できます。
+
+## 1. 前提ツールをインストールする
+
+以下のツールが必要です:
+
+- [`gh`](https://cli.github.com/) — GitHub CLI（`gh auth login` で認証済みのもの）。
+- [`git`](https://git-scm.com/) — `PATH` 上にインストール済みであること。
+- [`vibe`](https://github.com/kexi/vibe) — gh-vibe が呼び出す worktree マネージャ。
+
+## 2. gh-vibe をインストールする
+
+```sh
+gh extension install kexi/gh-vibe
+```
+
+最新の GitHub Release から、自分の環境用のプリビルドバイナリが
+ダウンロードされて `gh` のサブコマンドとして登録されます。
+
+## 3.（任意）シェル自動 cd を有効化する
+
+このステップを省略した場合、`gh vibe review` は worktree のパスを表示して
+終了するだけです。スニペットを仕込むと、シェルが自動でそこに `cd` します。
+
+```sh
+# ~/.bashrc or ~/.zshrc
+eval "$(gh vibe shell-setup)"
+```
+
+シェルを再読み込みしてから:
+
+```sh
+gh vibe review 123    # worktree を作成 + 自動 cd
+```
+
+## 4. 最初の PR をレビューする
+
+`origin` リモートが PR のベースリポジトリを指している git リポジトリの中で:
+
+```sh
+gh vibe review 123
+# あるいは
+gh vibe review https://github.com/owner/repo/pull/123
+```
+
+実際に変更を加えずに動作だけ確認したい場合:
+
+```sh
+gh vibe review 123 --dry-run
+```
+
+詳細は[コマンドリファレンス](/ja/commands/review/)を参照してください。

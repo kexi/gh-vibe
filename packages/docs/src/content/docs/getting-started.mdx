@@ -1,0 +1,61 @@
+---
+title: Getting Started
+description: Install gh-vibe and open your first PR as a vibe worktree.
+---
+
+`gh-vibe` is a [`gh`](https://cli.github.com/) extension that turns a GitHub
+pull request or issue into a [vibe](https://github.com/kexi/vibe) worktree,
+ready for review or local development.
+
+## 1. Install prerequisites
+
+You will need:
+
+- [`gh`](https://cli.github.com/) — the GitHub CLI, authenticated (`gh auth login`).
+- [`git`](https://git-scm.com/) — installed and on `PATH`.
+- [`vibe`](https://github.com/kexi/vibe) — the worktree manager that gh-vibe drives.
+
+## 2. Install gh-vibe
+
+```sh
+gh extension install kexi/gh-vibe
+```
+
+This downloads the prebuilt binary for your platform from the latest GitHub
+Release and registers it as a `gh` subcommand.
+
+## 3. (Optional) Enable shell auto-cd
+
+Without this step, `gh vibe review` prints the worktree path and exits — you
+have to `cd` there yourself. With the snippet installed, your shell follows
+along automatically:
+
+```sh
+# ~/.bashrc or ~/.zshrc
+eval "$(gh vibe shell-setup)"
+```
+
+Reload your shell, then:
+
+```sh
+gh vibe review 123    # creates the worktree AND cd's you into it
+```
+
+## 4. Review your first PR
+
+From inside a git repository whose `origin` remote points at the PR's base
+repo:
+
+```sh
+gh vibe review 123
+# or
+gh vibe review https://github.com/owner/repo/pull/123
+```
+
+To preview what would happen without making any changes:
+
+```sh
+gh vibe review 123 --dry-run
+```
+
+Read on for the full [command reference](/commands/review/).
