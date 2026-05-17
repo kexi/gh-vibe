@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { ExecError } from "./exec.ts";
-import { PrNotFoundError, formatGhError, viewIssue, viewPullRequest } from "./gh.ts";
+import {
+  PrNotFoundError,
+  formatGhError,
+  listPullRequests,
+  viewIssue,
+  viewPullRequest,
+} from "./gh.ts";
 
 function makeExecError(stderr: string, stdout = "", exitCode = 1): ExecError {
   return new ExecError({
@@ -236,6 +242,126 @@ describe("viewPullRequest", () => {
     await expect(
       viewPullRequest("1", "kexi/gh-vibe", fakeExec),
     ).rejects.toThrow("PR #1 not found in kexi/gh-vibe.");
+  });
+});
+
+describe("listPullRequests", () => {
+  test("invokes gh with the canonical argv (json fields, limit, state=all)", async () => {
+    const calls: Array<[string, string[]]> = [];
+    const fakeExec = async (cmd: string, args: string[]) => {
+      calls.push([cmd, args]);
+      return "[]";
+    };
+    await listPullRequests({ limit: 30 }, fakeExec);
+    expect(calls.length).toBe(1);
+    const [cmd, args] = calls[0];
+    expect(cmd).toBe("gh");
+    expect(args[0]).toBe("pr");
+    expect(args[1]).toBe("list");
+    expect(args).toContain("--json");
+    const jsonIdx = args.indexOf("--json");
+    expect(args[jsonIdx + 1]).toContain("headRefName");
+    expect(args[jsonIdx + 1]).toContain("statusCheckRollup");
+    expect(args).toContain("--limit");
+    expect(args[args.indexOf("--limit") + 1]).toBe("30");
+    expect(args).toContain("--state");
+    expect(args[args.indexOf("--state") + 1]).toBe("all");
+  });
+
+  test("parses well-formed JSON into PullRequestSummary[]", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) =>
+      JSON.stringify([
+        {
+          number: 1,
+          headRefName: "feat/foo",
+          state: "OPEN",
+          mergeable: "MERGEABLE",
+          statusCheckRollup: [{ conclusion: "SUCCESS" }],
+          reviewDecision: "APPROVED",
+        },
+        {
+          number: 2,
+          headRefName: "fix/bar",
+          state: "MERGED",
+          mergeable: null,
+          statusCheckRollup: null,
+          reviewDecision: null,
+        },
+      ]);
+    const result = await listPullRequests({ limit: 10 }, fakeExec);
+    expect(result.length).toBe(2);
+    expect(result[0].number).toBe(1);
+    expect(result[0].headRefName).toBe("feat/foo");
+    expect(result[1].state).toBe("MERGED");
+  });
+
+  test("drops elements failing the structural guard (number / headRefName)", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) =>
+      JSON.stringify([
+        { number: 1, headRefName: "ok", state: "OPEN" },
+        // missing number
+        { headRefName: "no-num", state: "OPEN" },
+        // wrong number type
+        { number: "2", headRefName: "str-num", state: "OPEN" },
+        // unsafe (negative) number
+        { number: -3, headRefName: "neg", state: "OPEN" },
+        // missing headRefName
+        { number: 4, state: "OPEN" },
+        // wrong headRefName type
+        { number: 5, headRefName: 42, state: "OPEN" },
+        { number: 6, headRefName: "also-ok", state: "MERGED" },
+      ]);
+    const result = await listPullRequests({ limit: 100 }, fakeExec);
+    expect(result.map((p) => p.number)).toEqual([1, 6]);
+  });
+
+  test("non-array JSON returns []", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) => '{"oops":1}';
+    expect(await listPullRequests({ limit: 1 }, fakeExec)).toEqual([]);
+  });
+
+  test("gh failure surfaces via formatGhError (PR-not-found style is irrelevant here, generic stderr)", async () => {
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+        exitCode: 1,
+      });
+    };
+    await expect(listPullRequests({ limit: 30 }, fakeExec)).rejects.toThrow(
+      "gh vibe must run from inside a git repository.",
+    );
+  });
+
+  test("SECURITY: secrets in stderr are masked in the thrown message", async () => {
+    const token = "ghp_FAKETOKENVALUE1234567890abcdEFGH";
+    const fakeExec = async (_cmd: string, args: string[]) => {
+      throw new ExecError({
+        cmd: "gh",
+        args,
+        stdout: "",
+        stderr: `unable to access https://x:${token}@github.com/owner/repo\n`,
+        exitCode: 1,
+      });
+    };
+    try {
+      await listPullRequests({ limit: 30 }, fakeExec);
+      throw new Error("expected listPullRequests to throw");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).not.toContain(token);
+      expect(message).toContain("***@github.com");
+    }
+  });
+
+  test("truncated JSON propagates SyntaxError (the caller pipes through formatGhError)", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) =>
+      '[{"number":1,"head';
+    await expect(listPullRequests({ limit: 30 }, fakeExec)).rejects.toThrow(
+      SyntaxError,
+    );
   });
 });
 

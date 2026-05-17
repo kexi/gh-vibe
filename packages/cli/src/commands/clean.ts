@@ -1,11 +1,10 @@
 import { realpathSync } from "node:fs";
-import * as path from "node:path";
 import * as readline from "node:readline";
 import { exec } from "../lib/exec.ts";
 import { PrNotFoundError, viewPullRequest } from "../lib/gh.ts";
 import {
   type WorktreeEntry,
-  assertValidRefName,
+  enumerateVibeWorktrees,
   getDefaultBranch,
   listWorktrees,
 } from "../lib/git.ts";
@@ -102,6 +101,70 @@ type Plan =
   | { kind: "delete"; entry: WorktreeEntry; prLabel: string }
   | { kind: "skip"; entry: WorktreeEntry; reason: string };
 
+/**
+ * Walk `entries` in original iteration order, replay each skip's log line,
+ * and return the final candidate set. The replay step preserves the
+ * pre-refactor log ordering (one-line-per-sibling); the additional "likely
+ * default name" guard only fires when `defaultBranch` resolution failed
+ * under the `--allow-no-default-branch` waiver.
+ */
+function selectAndLogCandidates(
+  entries: readonly WorktreeEntry[],
+  enumeration: ReturnType<typeof enumerateVibeWorktrees>,
+  defaultBranch: string | null,
+  log: (msg: string) => void,
+): WorktreeEntry[] {
+  const skipByPath = new Map(enumeration.skips.map((s) => [s.entry.path, s]));
+  const candidatePaths = new Set(enumeration.candidates.map((c) => c.path));
+
+  const candidates: WorktreeEntry[] = [];
+  for (const entry of entries) {
+    const skip = skipByPath.get(entry.path);
+    if (skip) {
+      if (skip.reason === "dash-prefixed") {
+        const branch = entry.branch ?? "<no branch>";
+        log(
+          `Skipping ${sanitizeForLog(entry.path)}: branch '${sanitizeForLog(branch)}' starts with '-'.`,
+        );
+      } else if (skip.reason === "invalid-ref-name") {
+        const detail = skip.detail ?? "Invalid ref name";
+        log(
+          `Skipping ${sanitizeForLog(entry.path)}: ${sanitizeForLog(detail)}.`,
+        );
+      }
+      continue;
+    }
+    const isCandidate = candidatePaths.has(entry.path);
+    if (!isCandidate) continue;
+    const branch = entry.branch;
+    // Defense in depth: candidates are guaranteed non-null branches by
+    // `enumerateVibeWorktrees`, but the explicit guard keeps TypeScript
+    // honest (no `as string` cast) and survives a future seam refactor.
+    if (!branch) continue;
+    // WHY: when `defaultBranch === null` (resolution failed + waiver flag),
+    // we lose the primary defence against deleting a worktree whose branch
+    // is the actual default. The `isMain` filter still protects the real
+    // main worktree, but a *sibling-prefixed* worktree happening to track
+    // `main` / `master` / `trunk` / `develop` would slip through. Skip such
+    // branches with a logged warning rather than risk a destructive delete.
+    const isLikelyDefaultName =
+      defaultBranch === null &&
+      (branch === "main" ||
+        branch === "master" ||
+        branch === "trunk" ||
+        branch === "develop");
+    if (isLikelyDefaultName) {
+      log(
+        `Skipping ${sanitizeForLog(entry.path)}: branch '${sanitizeForLog(branch)}' ` +
+          "is a likely default branch name and the real default could not be resolved.",
+      );
+      continue;
+    }
+    candidates.push(entry);
+  }
+  return candidates;
+}
+
 export async function cleanCommand(
   opts: CleanOptions,
   deps: CleanDeps = defaultDeps,
@@ -143,7 +206,6 @@ export async function cleanCommand(
     );
     return 2;
   }
-  const mainPath = mainEntry.path;
 
   let defaultBranch: string | null;
   try {
@@ -162,69 +224,13 @@ export async function cleanCommand(
     }
   }
 
-  const mainDir = path.dirname(mainPath);
-  const mainBasename = path.basename(mainPath);
-  const siblingPrefix = `${mainBasename}-`;
-
-  const candidates: WorktreeEntry[] = [];
-  for (const entry of entries) {
-    if (entry.isMain) continue;
-    if (entry.isBare) continue;
-    if (entry.isDetached) continue;
-    const branch = entry.branch;
-    if (!branch) continue;
-
-    const entryDir = path.dirname(entry.path);
-    const entryBasename = path.basename(entry.path);
-    const isSibling = entryDir === mainDir;
-    if (!isSibling) continue;
-    const hasSiblingPrefix = entryBasename.startsWith(siblingPrefix);
-    if (!hasSiblingPrefix) continue;
-
-    const isDefaultBranch =
-      defaultBranch !== null && branch === defaultBranch;
-    if (isDefaultBranch) continue;
-
-    // WHY: when `defaultBranch === null` (resolution failed + waiver flag),
-    // we lose the primary defence against deleting a worktree whose branch
-    // is the actual default. The `isMain` filter still protects the real
-    // main worktree, but a *sibling-prefixed* worktree happening to track
-    // `main` / `master` / `trunk` / `develop` would slip through. Skip such
-    // branches with a logged warning rather than risk a destructive delete.
-    const isLikelyDefaultName =
-      defaultBranch === null &&
-      (branch === "main" ||
-        branch === "master" ||
-        branch === "trunk" ||
-        branch === "develop");
-    if (isLikelyDefaultName) {
-      deps.log(
-        `Skipping ${sanitizeForLog(entry.path)}: branch '${sanitizeForLog(branch)}' ` +
-          "is a likely default branch name and the real default could not be resolved.",
-      );
-      continue;
-    }
-
-    const isDashPrefixed = branch.startsWith("-");
-    if (isDashPrefixed) {
-      deps.log(
-        `Skipping ${sanitizeForLog(entry.path)}: branch '${sanitizeForLog(branch)}' starts with '-'.`,
-      );
-      continue;
-    }
-
-    try {
-      assertValidRefName(branch);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      deps.log(
-        `Skipping ${sanitizeForLog(entry.path)}: ${sanitizeForLog(message)}.`,
-      );
-      continue;
-    }
-
-    candidates.push(entry);
-  }
+  const enumeration = enumerateVibeWorktrees({ entries, defaultBranch });
+  const candidates = selectAndLogCandidates(
+    entries,
+    enumeration,
+    defaultBranch,
+    deps.log,
+  );
 
   const isEmpty = candidates.length === 0;
   if (isEmpty) {
@@ -243,7 +249,8 @@ export async function cleanCommand(
       plans.push({ kind: "skip", entry, reason: "is-cwd" });
       continue;
     }
-    const branch = entry.branch as string;
+    const branch = entry.branch;
+    if (!branch) continue;
     try {
       const pr = await deps.viewPullRequest(branch);
       const isInState = (opts.state as ReadonlySet<string>).has(pr.state);

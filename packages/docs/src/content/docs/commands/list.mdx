@@ -1,0 +1,148 @@
+---
+title: gh vibe list
+description: List vibe-managed worktrees alongside their PR / CI / review state.
+---
+
+Enumerates vibe-managed worktrees (siblings of the main worktree whose
+basename starts with `<repo>-`), joins them against a single `gh pr list`
+call, and renders an aligned plain-text table or a JSON array. Read-only —
+no fetches, no mutations.
+
+## Usage
+
+```sh
+gh vibe list
+```
+
+Takes no positional arguments. Discovery is identical to
+[`gh vibe clean`](/commands/clean/).
+
+## Flags
+
+### `--json`
+
+Emit a single JSON array on stdout with no trailing newline (pipes cleanly
+into `jq`).
+
+```sh
+gh vibe list --json | jq '.[] | select(.isStale)'
+```
+
+Each element has the shape:
+
+```ts
+{
+  path: string;
+  branch: string;
+  prNumber: number | null;
+  prState: "OPEN" | "CLOSED" | "MERGED" | null;
+  mergeable: string | null;
+  ci: "success" | "pending" | "failure" | "none";
+  review: string | null;
+  isStale: boolean;
+}
+```
+
+### `--stale`
+
+Show only rows whose PR is `MERGED` or `CLOSED`. Orphan worktrees (no
+matching PR) are excluded.
+
+```sh
+gh vibe list --stale
+```
+
+### `--limit <n>`
+
+Upper bound on `gh pr list --limit`. Default `200`, max `1000`. Anything
+outside `[1, 1000]`, leading zeros, scientific or hex notation, or non-numeric
+input exits with code `2`.
+
+```sh
+gh vibe list --limit 500
+```
+
+### `--allow-no-default-branch`
+
+Suppress the soft-failure warning when `refs/remotes/origin/HEAD` is unset.
+Unlike `gh vibe clean`, `list` is read-only, so without this flag the warning
+is emitted but the command still proceeds.
+
+```sh
+gh vibe list --allow-no-default-branch
+```
+
+### `-h, --help`
+
+Show command-specific help.
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | Success (zero rows is success too). |
+| `2`  | Refused under the shell wrapper, invalid `--limit`, `git worktree list` or `gh pr list` failure, or the working directory is not a git repository. |
+
+## Discovery
+
+A worktree is a candidate when **all** hold:
+
+- Its on-disk path is a sibling of the main worktree (same parent dir,
+  basename starts with `<main-worktree-basename>-`).
+- It is on a local branch (not bare, not detached).
+- Its branch is not the repository's default branch.
+- Its branch passes git's ref-format validation and does not start with `-`.
+- The path does not contain a literal newline or ESC byte. Such paths are
+  dropped with a logged warning at the `list` boundary, since they would
+  corrupt downstream consumers of either the table or the JSON.
+
+## Join logic
+
+A single `gh pr list --state all --json …` call returns the working set.
+Worktrees are then joined to PRs in two passes:
+
+1. **Direct join** — worktree branch name equals PR `headRefName`. This
+   covers same-repo PRs.
+2. **Fork-PR join** — when the local branch matches the strict regex
+   `^pr\/([1-9]\d{0,8})\/[^/].*$`, the captured number is parsed with
+   `parseInt(s, 10)`, guarded with `Number.isSafeInteger` and the upper
+   bound `1_000_000_000`, then joined against `PR.number`. This is how
+   `gh vibe review` namespaces fork PRs locally.
+
+Worktrees with no matching PR appear in the table with `-` placeholders.
+
+The fork-PR regex relies on the path-safety filter (see _Discovery_ above) to
+have already dropped any worktree path containing a newline or ESC byte;
+without that pre-filter the regex itself — which uses default `RegExp`
+semantics (no `s` flag) — would not match a newline-bearing branch name, but
+the pre-filter also prevents such a worktree from reaching the join step at
+all.
+
+## CI rollup
+
+The `CI` column rolls up the PR's `statusCheckRollup` array into one of
+`success`, `pending`, `failure`, `none`:
+
+| Bucket | Members |
+| ------ | ------- |
+| `failure` | any check with `FAILURE`, `CANCELLED`, `TIMED_OUT`, `ACTION_REQUIRED`, or `ERROR` |
+| `pending` | otherwise, any with `PENDING`, `QUEUED`, `IN_PROGRESS`, `WAITING`, or `EXPECTED` |
+| `success` | otherwise, all checks in `SUCCESS` / `NEUTRAL` / `SKIPPED` |
+| `none`    | empty / unknown rollup, or no PR |
+
+Each entry reads `conclusion ?? status ?? state` and uppercases before
+classification.
+
+## Requirements
+
+- `gh` and `git` available in `PATH`.
+- Run from inside a git repository.
+
+## What it does
+
+1. Refuses to run under the `gh vibe shell-setup` shell wrapper.
+2. Enumerates worktrees via `git worktree list --porcelain -z`.
+3. Resolves the default branch; soft-warns and continues on failure.
+4. Calls `gh pr list --state all` once with the chosen limit.
+5. Joins worktrees → PRs (direct + fork-PR fallback).
+6. Renders the result as a plain table (default) or JSON (`--json`).

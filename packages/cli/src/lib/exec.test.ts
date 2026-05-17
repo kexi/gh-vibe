@@ -15,3 +15,26 @@ describe("exec", () => {
     );
   });
 });
+
+describe("exec: maxStdoutBytes", () => {
+  test("stdout output exceeding the bound rejects with overflow error", async () => {
+    // 4 KiB of output; bound is 64 bytes so the very first chunk overflows.
+    await expect(
+      exec("sh", ["-c", "head -c 4096 /dev/zero"], { maxStdoutBytes: 64 }),
+    ).rejects.toThrow(/stdout exceeded 64 bytes/);
+  });
+
+  test("stdout output under the bound resolves normally", async () => {
+    const result = await exec("sh", ["-c", "printf hi"], {
+      maxStdoutBytes: 1024,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("hi");
+  });
+
+  test("no bound set: large output is accepted (default unlimited)", async () => {
+    const result = await exec("sh", ["-c", "head -c 4096 /dev/zero | wc -c"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("4096");
+  });
+});

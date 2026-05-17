@@ -1,0 +1,142 @@
+---
+title: gh vibe list
+description: vibe が管理する worktree を PR / CI / レビュー状態と一緒に一覧表示する
+---
+
+vibe が管理する worktree（main worktree と同じ親ディレクトリにあり、basename が
+`<repo>-` で始まるもの）を列挙し、1 回の `gh pr list` 呼び出しの結果と
+結合して、整形済みの表または JSON 配列を出力します。読み取り専用で、
+fetch も worktree 変更も行いません。
+
+## 使い方
+
+```sh
+gh vibe list
+```
+
+位置引数はありません。候補の発見ルールは
+[`gh vibe clean`](/ja/commands/clean/) と同じです。
+
+## フラグ
+
+### `--json`
+
+stdout に JSON 配列を 1 つ出力します（末尾改行なし、`jq` にそのまま渡せる）。
+
+```sh
+gh vibe list --json | jq '.[] | select(.isStale)'
+```
+
+各要素は以下の形式です:
+
+```ts
+{
+  path: string;
+  branch: string;
+  prNumber: number | null;
+  prState: "OPEN" | "CLOSED" | "MERGED" | null;
+  mergeable: string | null;
+  ci: "success" | "pending" | "failure" | "none";
+  review: string | null;
+  isStale: boolean;
+}
+```
+
+### `--stale`
+
+PR が `MERGED` / `CLOSED` の行のみ表示します。対応する PR が見つからない
+worktree（orphan）は除外されます。
+
+```sh
+gh vibe list --stale
+```
+
+### `--limit <n>`
+
+`gh pr list --limit` の上限値。既定は `200`、最大 `1000`。`[1, 1000]` の範囲外、
+先頭ゼロ、指数表記、16 進表記、数値以外などは終了コード `2` で拒否します。
+
+```sh
+gh vibe list --limit 500
+```
+
+### `--allow-no-default-branch`
+
+`refs/remotes/origin/HEAD` 未設定時のソフトフェイル警告を抑止します。
+`gh vibe clean` と異なり、`list` は読み取り専用なのでこのフラグなしでも
+警告を出したうえで実行は続行します。
+
+```sh
+gh vibe list --allow-no-default-branch
+```
+
+### `-h, --help`
+
+コマンド個別のヘルプを表示します。
+
+## 終了コード
+
+| Code | 意味 |
+| ---- | ---- |
+| `0`  | 成功（候補 0 件も成功）。 |
+| `2`  | シェルラッパー越しでの実行拒否、不正な `--limit`、`git worktree list` / `gh pr list` の失敗、または git リポジトリ外からの実行。 |
+
+## ディスカバリ
+
+以下を **すべて** 満たす worktree が候補になります:
+
+- 物理パスが main worktree と同じ親ディレクトリ直下にある（兄弟）。
+- basename が `<main-worktreeの-basename>-` で始まる。
+- ローカルブランチに紐付いている（bare でも detached でもない）。
+- ブランチがリポジトリの default branch ではない。
+- ブランチ名が git の ref-format バリデーションを通過し、`-` で始まらない。
+- パスに改行 / ESC バイトを含まない。含む場合は `list` 側で除外し警告を
+  ログに出します（表 / JSON 双方の出力先を壊さないため）。
+
+## 結合ロジック
+
+`gh pr list --state all --json …` を 1 回だけ呼び出し、その結果を以下の
+2 段階で worktree と結合します:
+
+1. **直接結合** — worktree のブランチ名が PR の `headRefName` と一致する場合。
+   同一リポジトリ PR のケース。
+2. **fork-PR 結合** — ローカルブランチが厳密な正規表現
+   `^pr\/([1-9]\d{0,8})\/[^/].*$` にマッチする場合、捕捉した番号を
+   `parseInt(s, 10)` で読み、`Number.isSafeInteger` と上限
+   `1_000_000_000` でガードしたうえで `PR.number` と結合します。これは
+   `gh vibe review` が fork PR にローカルで名前空間を切るパターンです。
+
+該当 PR がない worktree は表上で `-` プレースホルダになります。
+
+fork-PR の正規表現は _ディスカバリ_ 節のパス安全フィルタが「改行 / ESC
+バイトを含むパスを事前に除外している」ことを前提としています。デフォルトの
+`RegExp` は `s` フラグなしのため改行を含むブランチ名にはマッチしませんが、
+それ以前にパスフィルタが該当 worktree を結合対象に到達させません。
+
+## CI ロールアップ
+
+`CI` 列は PR の `statusCheckRollup` 配列を
+`success` / `pending` / `failure` / `none` のいずれかに集約します:
+
+| 区分 | 要素 |
+| ---- | ---- |
+| `failure` | `FAILURE` / `CANCELLED` / `TIMED_OUT` / `ACTION_REQUIRED` / `ERROR` のいずれかを含む |
+| `pending` | それ以外で `PENDING` / `QUEUED` / `IN_PROGRESS` / `WAITING` / `EXPECTED` を含む |
+| `success` | それ以外で全項目が `SUCCESS` / `NEUTRAL` / `SKIPPED` |
+| `none`    | 空 / 不明、または PR 未マッチ |
+
+各エントリは `conclusion ?? status ?? state` を順に見て大文字化して判定します。
+
+## 必要条件
+
+- `gh` / `git` が `PATH` 上に存在すること。
+- git リポジトリ内から実行すること。
+
+## 内部処理
+
+1. `gh vibe shell-setup` のラッパー経由での実行を拒否。
+2. `git worktree list --porcelain -z` で worktree を列挙。
+3. default branch を解決。失敗時はソフト警告で続行。
+4. 指定 limit で `gh pr list --state all` を 1 回呼び出し。
+5. worktree → PR を直接結合 + fork-PR フォールバックで結合。
+6. 既定では整形済み表、`--json` 時は JSON 配列を出力。

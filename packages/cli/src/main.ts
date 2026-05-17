@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { cleanCommand } from "./commands/clean.ts";
 import { issueCommand } from "./commands/issue.ts";
+import { listCommand } from "./commands/list.ts";
 import { reviewCommand } from "./commands/review.ts";
 import {
   SUPPORTED_SHELLS,
@@ -19,6 +20,7 @@ const HELP_TEXT = `gh-vibe — gh CLI extension for vibe worktrees
 Usage:
   gh vibe review <PR# | URL>   Create a worktree for reviewing a pull request
   gh vibe issue <# | URL>      Create a worktree for working on an issue
+  gh vibe list                 List vibe worktrees and their PR / CI status
   gh vibe clean                Bulk-remove vibe worktrees whose PR is merged/closed
   gh vibe shell-setup          Print shell wrapper that auto-cd's into the worktree
 
@@ -86,6 +88,7 @@ export interface MainDeps {
   issueCommand: typeof issueCommand;
   reviewCommand: typeof reviewCommand;
   cleanCommand: typeof cleanCommand;
+  listCommand: typeof listCommand;
 }
 
 /**
@@ -106,7 +109,7 @@ type ParsedIssueArgs = {
 /** Exported only for tests; production callers should use the entry-point block. */
 export async function main(
   argv: string[],
-  deps: MainDeps = { issueCommand, reviewCommand, cleanCommand },
+  deps: MainDeps = { issueCommand, reviewCommand, cleanCommand, listCommand },
 ): Promise<number> {
   const shellMode = initShellMode();
   setShellMode(shellMode);
@@ -122,6 +125,13 @@ export async function main(
 
   const [sub, ...rest] = argv;
 
+  // TODO(maintainability): each `case` block currently inlines parseArgs +
+  // help text + bounds checks for that subcommand. As more commands land,
+  // this `main` will balloon; the intended next refactor is to move each
+  // command's argv parser into its own `commands/<name>.ts` (e.g.
+  // `parseListArgs(rest): ListOptions | { exitCode }`) so `main` stays a
+  // thin dispatcher. Doing it for a single arm in isolation just creates
+  // asymmetry, so the migration should sweep all arms in one PR.
   switch (sub) {
     case "review": {
       let parsed;
@@ -244,6 +254,64 @@ export async function main(
         dryRun: values["dry-run"],
         base: rawBase,
         type,
+      });
+    }
+    case "list": {
+      let parsed;
+      try {
+        parsed = parseArgs({
+          args: rest,
+          options: {
+            json: { type: "boolean", default: false },
+            stale: { type: "boolean", default: false },
+            limit: { type: "string" },
+            "allow-no-default-branch": { type: "boolean", default: false },
+            help: { type: "boolean", short: "h", default: false },
+          },
+          allowPositionals: false,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        console.error("Usage: gh vibe list [options]");
+        return 2;
+      }
+      const { values } = parsed;
+      if (values.help) {
+        console.log(
+          "Usage: gh vibe list [options]\n\n" +
+            "Lists vibe-managed worktrees alongside their PR / CI / review state.\n\n" +
+            "Options:\n" +
+            "      --json                    Emit machine-readable JSON (no trailing newline).\n" +
+            "      --stale                   Show only worktrees whose PR is merged or closed.\n" +
+            "      --limit <n>               Cap on `gh pr list` query size (1-1000, default 200).\n" +
+            "      --allow-no-default-branch Suppress the warning when origin/HEAD is unset.\n" +
+            "  -h, --help                    Show this help.",
+        );
+        return 0;
+      }
+      let limit = 200;
+      if (values.limit !== undefined) {
+        const raw = values.limit;
+        // Regex first so `0`, leading zeros, `1e9`, `0x10`, and negatives all
+        // fail before parseInt. Upper cap enforced separately.
+        const isShapeOk = /^[1-9]\d{0,3}$/.test(raw);
+        if (!isShapeOk) {
+          console.error(`Error: invalid --limit value: ${raw}`);
+          return 2;
+        }
+        limit = parseInt(raw, 10);
+        const isInBounds = limit >= 1 && limit <= 1000;
+        if (!isInBounds) {
+          console.error(`Error: invalid --limit value: ${raw}`);
+          return 2;
+        }
+      }
+      return await deps.listCommand({
+        json: values.json,
+        stale: values.stale,
+        limit,
+        allowNoDefaultBranch: values["allow-no-default-branch"],
       });
     }
     case "clean": {
