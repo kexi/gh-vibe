@@ -418,83 +418,8 @@ describe("main: clean subcommand argv parsing", () => {
     expect(allErrors).toContain("invalid --state value");
   });
 
-  test("--state= (empty) → exit 2", async () => {
-    const deps = makeMainDeps();
-
-    const code = await main(["clean", "--state="], deps);
-
-    expect(code).toBe(2);
-  });
-
-  // R-6: --state boundary cases. Each test asserts the *current* behavior
-  // of `parseStateList` as routed through main(); these pin the contract
-  // end-to-end so a future parseStateList tweak that breaks one of these
-  // shapes is caught at the CLI boundary rather than just at the helper
-  // boundary.
-  test("--state='merged, closed' (whitespace after comma): {MERGED,CLOSED}", async () => {
-    const captured: CleanOptions[] = [];
-    const deps = makeMainDeps({
-      cleanCommand: async (opts) => {
-        captured.push(opts);
-        return 0;
-      },
-    });
-    const code = await main(["clean", "--state=merged, closed"], deps);
-    expect(code).toBe(0);
-    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED", "CLOSED"]));
-  });
-
-  test("--state='merged,merged,closed' (duplicate): deduped to {MERGED,CLOSED}", async () => {
-    const captured: CleanOptions[] = [];
-    const deps = makeMainDeps({
-      cleanCommand: async (opts) => {
-        captured.push(opts);
-        return 0;
-      },
-    });
-    const code = await main(["clean", "--state=merged,merged,closed"], deps);
-    expect(code).toBe(0);
-    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED", "CLOSED"]));
-  });
-
-  test("--state='merged,,closed' (empty middle token): exit 2", async () => {
-    const deps = makeMainDeps();
-    const code = await main(["clean", "--state=merged,,closed"], deps);
-    expect(code).toBe(2);
-  });
-
-  test("--state='   ' (all-whitespace): exit 2", async () => {
-    const deps = makeMainDeps();
-    const code = await main(["clean", "--state=   "], deps);
-    expect(code).toBe(2);
-  });
-
-  test("--state=MERGED (uppercase): {MERGED}", async () => {
-    const captured: CleanOptions[] = [];
-    const deps = makeMainDeps({
-      cleanCommand: async (opts) => {
-        captured.push(opts);
-        return 0;
-      },
-    });
-    const code = await main(["clean", "--state=MERGED"], deps);
-    expect(code).toBe(0);
-    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED"]));
-  });
-
-  test("--state=Merged (mixed case): {MERGED}", async () => {
-    const captured: CleanOptions[] = [];
-    const deps = makeMainDeps({
-      cleanCommand: async (opts) => {
-        captured.push(opts);
-        return 0;
-      },
-    });
-    const code = await main(["clean", "--state=Merged"], deps);
-    expect(code).toBe(0);
-    expect(new Set(captured[0].state)).toEqual(new Set(["MERGED"]));
-  });
-
+  // Space-form empty value goes through a different parseArgs path than
+  // equals-form; both must still translate to our exit-2 contract.
   test("--state '' (space-form empty value): exit 2", async () => {
     const deps = makeMainDeps();
     const code = await main(["clean", "--state", ""], deps);

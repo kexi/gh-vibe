@@ -55,7 +55,6 @@ function mainEntry(): WorktreeEntry {
 function makeDeps(overrides: Partial<CleanDeps> = {}): CleanDeps {
   return {
     listWorktrees: async () => [mainEntry()],
-    getMainWorktreePath: async () => "/repos/repo",
     getDefaultBranch: async () => "main",
     viewPullRequest: async () => makePr(),
     exec: async (): Promise<ExecResult> => ({
@@ -82,6 +81,37 @@ describe("cleanCommand: discovery / filtering", () => {
     const code = await cleanCommand(makeOpts(), deps);
     expect(code).toBe(0);
     expect(logs.some((l) => /no vibe-managed worktrees/i.test(l))).toBe(true);
+  });
+
+  test("empty worktree list: exit 2 and short-circuits before downstream deps", async () => {
+    const logs: string[] = [];
+    let defaultBranchCalls = 0;
+    let viewPrCalls = 0;
+    let execCalls = 0;
+    const deps = makeDeps({
+      listWorktrees: async () => [],
+      getDefaultBranch: async () => {
+        defaultBranchCalls += 1;
+        return "main";
+      },
+      viewPullRequest: async () => {
+        viewPrCalls += 1;
+        return makePr();
+      },
+      exec: async () => {
+        execCalls += 1;
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+      log: (m) => logs.push(m),
+    });
+    const code = await cleanCommand(makeOpts(), deps);
+    expect(code).toBe(2);
+    expect(logs.some((l) => l.includes("Could not determine main worktree"))).toBe(
+      true,
+    );
+    expect(defaultBranchCalls).toBe(0);
+    expect(viewPrCalls).toBe(0);
+    expect(execCalls).toBe(0);
   });
 
   test("main worktree excluded even when sibling-named", async () => {
@@ -192,7 +222,7 @@ describe("cleanCommand: discovery / filtering", () => {
     expect(viewCalls).toEqual([]);
   });
 
-  // R-1: under --allow-no-default-branch, the primary "branch ===
+  // Under --allow-no-default-branch, the primary "branch ===
   // defaultBranch" guard short-circuits because defaultBranch is null. A
   // sibling-prefixed worktree on `main` / `master` / `trunk` / `develop`
   // must still be skipped under that conservative fallback, with a logged
@@ -854,7 +884,7 @@ describe("cleanCommand: confirmation prompt", () => {
     expect(execCalls.length).toBe(2);
   });
 
-  // R-7: pin the prompt grammar at N=1. The string is user-visible UX; we
+  // Pin the prompt grammar at N=1. The string is user-visible UX; we
   // want a refactor that accidentally changes "1 worktree(s)" to break the
   // build so the change is intentional.
   test("N=1 candidate, prompt input '1': prompt grammar is exact", async () => {
@@ -878,7 +908,7 @@ describe("cleanCommand: confirmation prompt", () => {
     expect(execCalls.length).toBe(1);
   });
 
-  // R-5: simulating Ctrl-C inside readline — the injected prompt rejects
+  // Simulating Ctrl-C inside readline — the injected prompt rejects
   // with an Error. Contract: cleanCommand SWALLOWS the rejection, logs an
   // "Aborted (prompt error: …)" line, returns exit 0, and never reaches an
   // exec call. Pins the safer "no deletes on prompt failure" behavior.
@@ -906,7 +936,6 @@ describe("cleanCommand: security / log discipline", () => {
   test("path with spaces is passed to exec as cwd verbatim", async () => {
     const execCalls: Array<unknown> = [];
     const deps = makeDeps({
-      getMainWorktreePath: async () => "/repos/my repo",
       listWorktrees: async () => [
         {
           path: "/repos/my repo",

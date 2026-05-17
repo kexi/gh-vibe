@@ -7,7 +7,6 @@ import {
   type WorktreeEntry,
   assertValidRefName,
   getDefaultBranch,
-  getMainWorktreePath,
   listWorktrees,
 } from "../lib/git.ts";
 import { sanitizeForLog } from "../lib/format.ts";
@@ -27,7 +26,6 @@ export interface CleanOptions {
  */
 export interface CleanDeps {
   listWorktrees: typeof listWorktrees;
-  getMainWorktreePath: typeof getMainWorktreePath;
   getDefaultBranch: typeof getDefaultBranch;
   viewPullRequest: typeof viewPullRequest;
   exec: typeof exec;
@@ -89,7 +87,6 @@ async function defaultPrompt(line: string): Promise<string> {
 
 const defaultDeps: CleanDeps = {
   listWorktrees,
-  getMainWorktreePath,
   getDefaultBranch,
   viewPullRequest,
   exec,
@@ -118,8 +115,8 @@ export async function cleanCommand(
   }
 
   const isTty = deps.isStdoutTty();
-  const isNonInteractiveWithoutYes = !isTty && !opts.yes;
-  if (isNonInteractiveWithoutYes) {
+  const canRunNonInteractive = isTty || opts.yes;
+  if (!canRunNonInteractive) {
     deps.log(
       "gh vibe clean: refusing to run non-interactively without --yes " +
         "(would skip the typed-<count> confirmation prompt).",
@@ -127,14 +124,26 @@ export async function cleanCommand(
     return 2;
   }
 
-  let mainPath: string;
+  let entries: WorktreeEntry[];
   try {
-    mainPath = await deps.getMainWorktreePath();
+    entries = await deps.listWorktrees();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     deps.log(`Error: ${message}`);
     return 2;
   }
+
+  // `git worktree list` always returns the main worktree first; an empty
+  // result means we're not in a git repo at all (or the listing failed
+  // silently). Either way, no candidates can possibly be derived.
+  const mainEntry = entries[0];
+  if (!mainEntry) {
+    deps.log(
+      "Error: Could not determine main worktree (no worktrees listed).",
+    );
+    return 2;
+  }
+  const mainPath = mainEntry.path;
 
   let defaultBranch: string | null;
   try {
@@ -151,15 +160,6 @@ export async function cleanCommand(
       deps.log(`Error: ${message}`);
       return 2;
     }
-  }
-
-  let entries: WorktreeEntry[];
-  try {
-    entries = await deps.listWorktrees();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    deps.log(`Error: ${message}`);
-    return 2;
   }
 
   const mainDir = path.dirname(mainPath);
@@ -232,6 +232,7 @@ export async function cleanCommand(
     return 0;
   }
 
+  // --- Phase 2: query PR state for each candidate ---
   const cwd = deps.cwd();
   const plans: Plan[] = [];
   let transientFailures = 0;
@@ -242,7 +243,6 @@ export async function cleanCommand(
       plans.push({ kind: "skip", entry, reason: "is-cwd" });
       continue;
     }
-    // Branch must be non-null here — filtered above.
     const branch = entry.branch as string;
     try {
       const pr = await deps.viewPullRequest(branch);
@@ -284,7 +284,6 @@ export async function cleanCommand(
     (p): p is Extract<Plan, { kind: "delete" }> => p.kind === "delete",
   );
 
-  // Show the sanitized plan to the user (and don't act yet).
   for (const plan of plans) {
     if (plan.kind === "delete") {
       const branch = plan.entry.branch ?? "<no branch>";
