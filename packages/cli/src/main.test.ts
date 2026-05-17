@@ -636,3 +636,204 @@ describe("main: list subcommand argv parsing", () => {
     expect(invoked).toBe(false);
   });
 });
+
+describe("main: completion subcommand argv parsing", () => {
+  function makeMainDeps(overrides: Partial<MainDeps> = {}): MainDeps {
+    return {
+      issueCommand: async (_opts: IssueOptions) => 0,
+      reviewCommand: async (_opts: ReviewOptions) => 0,
+      cleanCommand: async (_opts: CleanOptions) => 0,
+      listCommand: async (_opts: ListOptions) => 0,
+      ...overrides,
+    };
+  }
+
+  // The completion arm exercises three sinks that the file's top-level hooks
+  // don't fully manage on their own:
+  //   - process.stdout.write (the fish snippet emission)
+  //   - console.log          (the --help text and the unknown-subcommand HELP_TEXT)
+  //   - console.error        (the "Unknown --shell value" branch)
+  // Top-level beforeEach already captures process.stderr.write (used by the
+  // "not yet supported" branch) and restores process.stdout.isTTY, so we only
+  // need to layer the remaining sinks plus SHELL / PSModulePath isolation
+  // here. detectShell() consults PSModulePath first; on PowerShell hosts that
+  // would short-circuit our fish detection tests, so we explicitly clear it.
+  let savedShell: string | undefined;
+  let savedPsModulePath: string | undefined;
+  let stdoutChunks: string[];
+  let stdoutWriteOriginal: typeof process.stdout.write;
+  let consoleLogCalls: unknown[][];
+  let consoleErrorCalls: unknown[][];
+  let consoleErrorOriginal: typeof console.error;
+
+  beforeEach(() => {
+    setIsTty(false);
+
+    savedShell = process.env.SHELL;
+    savedPsModulePath = process.env.PSModulePath;
+    delete process.env.PSModulePath;
+
+    stdoutChunks = [];
+    stdoutWriteOriginal = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((chunk: string | Uint8Array) => {
+      stdoutChunks.push(
+        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString(),
+      );
+      return true;
+    }) as typeof process.stdout.write;
+
+    // The outer beforeEach already snapshots console.log via savedConsoleLog
+    // and restores it in afterEach, so we only need to overwrite it here.
+    consoleLogCalls = [];
+    console.log = ((...args: unknown[]) => {
+      consoleLogCalls.push(args);
+    }) as typeof console.log;
+
+    consoleErrorCalls = [];
+    consoleErrorOriginal = console.error;
+    console.error = ((...args: unknown[]) => {
+      consoleErrorCalls.push(args);
+    }) as typeof console.error;
+  });
+
+  afterEach(() => {
+    process.stdout.write = stdoutWriteOriginal;
+    console.error = consoleErrorOriginal;
+
+    if (savedShell === undefined) {
+      delete process.env.SHELL;
+    } else {
+      process.env.SHELL = savedShell;
+    }
+    if (savedPsModulePath === undefined) {
+      delete process.env.PSModulePath;
+    } else {
+      process.env.PSModulePath = savedPsModulePath;
+    }
+  });
+
+  function stdoutText(): string {
+    return stdoutChunks.join("");
+  }
+  function stderrText(): string {
+    return stderrChunks.join("");
+  }
+  function consoleLogText(): string {
+    return consoleLogCalls.map((args) => args.join(" ")).join("\n");
+  }
+  function consoleErrorText(): string {
+    return consoleErrorCalls.map((args) => args.join(" ")).join("\n");
+  }
+
+  // 1.1 [required]
+  test("completion --shell=fsih exits 2 with 'Unknown --shell value' on stderr", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["completion", "--shell=fsih"], deps);
+
+    expect(code).toBe(2);
+    expect(consoleErrorText()).toContain("Unknown --shell value");
+    // The fish snippet must not have leaked to stdout on the error path.
+    expect(stdoutText()).toBe("");
+  });
+
+  // 1.2 [required] — explicit --shell={bash,zsh,pwsh} routes through the
+  // COMPLETION_SUPPORTED_SHELLS rejection branch (separate from 1.1's
+  // SUPPORTED_SHELLS branch). The error text is written via
+  // process.stderr.write, captured by the file-level stderrChunks.
+  test.each(["bash", "zsh", "pwsh"])(
+    "completion --shell=%s exits 2 with 'not yet supported' on stderr",
+    async (shell) => {
+      const deps = makeMainDeps();
+      const code = await main(["completion", `--shell=${shell}`], deps);
+
+      expect(code).toBe(2);
+      const stderrAll = stderrText();
+      expect(stderrAll).toContain("not yet supported");
+      expect(stderrAll).toContain(shell);
+      expect(stdoutText()).toBe("");
+    },
+  );
+
+  // 1.3 [required]
+  test("completion --shell=fish exits 0 and emits the fish snippet to stdout", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["completion", "--shell=fish"], deps);
+
+    expect(code).toBe(0);
+    // Stable sentinel from FISH_SNIPPET — proves the right snippet routed to
+    // stdout without snapshotting the entire script.
+    expect(stdoutText()).toContain("_GH_VIBE_COMPLETION_LOADED");
+    expect(stderrText()).toBe("");
+  });
+
+  // 1.4 [required]
+  test("completion (no --shell) with SHELL=/opt/homebrew/bin/fish exits 0 and emits the fish snippet", async () => {
+    process.env.SHELL = "/opt/homebrew/bin/fish";
+    const deps = makeMainDeps();
+    const code = await main(["completion"], deps);
+
+    expect(code).toBe(0);
+    expect(stdoutText()).toContain("_GH_VIBE_COMPLETION_LOADED");
+    expect(stderrText()).toBe("");
+  });
+
+  // 1.5 [critical] — default macOS shell is zsh, so this is the path most
+  // users hit when they forget --shell=fish. The brief calls out asserting
+  // both the "not yet supported" message and the literal token "zsh".
+  test("completion (no --shell) with SHELL=/usr/bin/zsh exits 2 with 'not yet supported' on stderr", async () => {
+    process.env.SHELL = "/usr/bin/zsh";
+    const deps = makeMainDeps();
+    const code = await main(["completion"], deps);
+
+    expect(code).toBe(2);
+    const stderrAll = stderrText();
+    expect(stderrAll).toContain("not yet supported");
+    expect(stderrAll).toContain("zsh");
+    expect(stdoutText()).toBe("");
+  });
+
+  // 1.6 [required] — help branch returns before any dispatch. We assert no
+  // stderr was written (no completionCommand-side effects) and that the
+  // help-specific install-path text appears, which can only come from the
+  // help branch.
+  test("completion --help exits 0, mentions --shell=fish, and does not invoke any command", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["completion", "--help"], deps);
+
+    expect(code).toBe(0);
+    const logText = consoleLogText();
+    expect(logText).toContain("--shell=fish");
+    expect(logText).toContain("~/.config/fish/completions/gh-vibe.fish");
+    // No completion-snippet side-effects: stderr is silent and stdout (which
+    // the snippet would have used) was not written to.
+    expect(stderrText()).toBe("");
+    expect(stdoutText()).toBe("");
+  });
+
+  // 1.7 [recommended] — parseArgs throws on a dangling `--shell` with no
+  // value; the wrapping try/catch must translate that into the exit-2 +
+  // usage-on-stderr contract.
+  test("completion --shell (missing value) exits 2 with usage on stderr", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["completion", "--shell"], deps);
+
+    expect(code).toBe(2);
+    expect(consoleErrorText()).toContain(
+      "Usage: gh vibe completion [--shell=<fish>]",
+    );
+    expect(stdoutText()).toBe("");
+  });
+
+  // 1.8 [recommended] — guard against the HELP_TEXT completion line drifting.
+  // No existing unknown-subcommand test in this file, so this is a fresh add
+  // rather than an extension.
+  test("unknown subcommand 'foo' prints HELP_TEXT that now contains the completion line", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["foo"], deps);
+
+    expect(code).toBe(2);
+    const errorText = consoleErrorText();
+    expect(errorText).toContain("Unknown command: foo");
+    expect(errorText).toContain("gh vibe completion");
+  });
+});

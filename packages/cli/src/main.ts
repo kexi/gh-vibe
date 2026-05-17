@@ -1,5 +1,9 @@
 import { parseArgs } from "node:util";
 import { cleanCommand } from "./commands/clean.ts";
+import {
+  COMPLETION_SUPPORTED_SHELLS,
+  completionCommand,
+} from "./commands/completion.ts";
 import { issueCommand } from "./commands/issue.ts";
 import { listCommand } from "./commands/list.ts";
 import { reviewCommand } from "./commands/review.ts";
@@ -23,6 +27,7 @@ Usage:
   gh vibe list                 List vibe worktrees and their PR / CI status
   gh vibe clean                Bulk-remove vibe worktrees whose PR is merged/closed
   gh vibe shell-setup          Print shell wrapper that auto-cd's into the worktree
+  gh vibe completion           Print a shell completion script (fish for now)
 
 Options:
   -n, --dry-run    Print what would happen without fetching or creating a worktree
@@ -406,6 +411,64 @@ export async function main(
       }
       const shell = requestedShell ?? detectShell();
       return shellSetupCommand(shell);
+    }
+    case "completion": {
+      let parsed;
+      try {
+        parsed = parseArgs({
+          args: rest,
+          options: {
+            shell: { type: "string" },
+            help: { type: "boolean", short: "h", default: false },
+          },
+          allowPositionals: false,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        console.error("Usage: gh vibe completion [--shell=<fish>]");
+        return 2;
+      }
+      const { values } = parsed;
+      if (values.help) {
+        console.log(
+          "Usage: gh vibe completion [--shell=<fish>]\n\n" +
+            "Prints a shell completion script for `gh vibe`. Currently fish only;\n" +
+            "bash/zsh/pwsh are planned. Without --shell, the calling shell is auto-detected.\n\n" +
+            "Install with:\n" +
+            "  fish:  gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish\n" +
+            "         (or, for the current session only: gh vibe completion --shell=fish | source)",
+        );
+        return 0;
+      }
+      const requestedShell = values.shell;
+      // First: must be one of the four known ShellKind values. This guards
+      // against typos like `--shell=fsih` before the narrower
+      // "do we have a snippet yet?" check below.
+      const isValidShell = (s: string): s is ShellKind =>
+        (SUPPORTED_SHELLS as readonly string[]).includes(s);
+      if (requestedShell !== undefined && !isValidShell(requestedShell)) {
+        console.error(
+          `Unknown --shell value: ${requestedShell}. ` +
+            `Supported: ${SUPPORTED_SHELLS.join(", ")}.`,
+        );
+        return 2;
+      }
+      const shell = requestedShell ?? detectShell();
+      // Second: even if it's a real ShellKind, the snippet may not be
+      // wired up yet (only fish today). Surface a clear error rather than
+      // emitting nothing, mirroring the message in `completionCommand`.
+      const isCompletionSupported = (
+        COMPLETION_SUPPORTED_SHELLS as readonly string[]
+      ).includes(shell);
+      if (!isCompletionSupported) {
+        process.stderr.write(
+          `gh-vibe: completion for ${shell} is not yet supported ` +
+            `(only fish for now). Pass --shell=fish to emit it anyway.\n`,
+        );
+        return 2;
+      }
+      return completionCommand(shell);
     }
     default:
       console.error(`Unknown command: ${sub}`);
