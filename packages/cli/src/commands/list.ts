@@ -40,9 +40,9 @@ const defaultDeps: ListDeps = {
   isShellMode: () => getShellMode(),
 };
 
-// NEVER swap `parseInt` for `Number(s)` — `Number("0x10")` would parse hex,
-// `Number("1e9")` would silently accept exponential notation; both shapes are
-// outside the regex's intent.
+// Restricted to [1-9]\d{0,8} (1–9 decimal digits, no leading zero) so the
+// regex itself rejects hex / exponential / zero-padded variants that
+// `parseInt(_, 10)` would otherwise accept silently in `parseForkPrNumber`.
 const FORK_PR_BRANCH_RE = /^pr\/([1-9]\d{0,8})\/[^/].*$/;
 const PR_NUMBER_UPPER_BOUND = 1_000_000_000;
 
@@ -76,6 +76,9 @@ function parseForkPrNumber(branch: string): number | null {
   const match = FORK_PR_BRANCH_RE.exec(branch);
   if (!match) return null;
   const captured = match[1];
+  // Use `parseInt(_, 10)` — NEVER `Number(s)`. `Number("0x10")` would parse
+  // hex and `Number("1e9")` exponential notation; the regex already excludes
+  // both shapes, but this keeps that contract explicit.
   const n = parseInt(captured, 10);
   const isSafe =
     Number.isSafeInteger(n) && n > 0 && n <= PR_NUMBER_UPPER_BOUND;
@@ -95,27 +98,27 @@ function joinWorktreesWithPrs(
     byNumber.set(pr.number, pr);
   }
 
-  const out: JoinedRow[] = [];
+  const joined: JoinedRow[] = [];
   for (const entry of entries) {
     const branch = entry.branch;
     if (!branch) {
-      out.push({ entry, pr: null });
+      joined.push({ entry, pr: null });
       continue;
     }
     const direct = byHeadRef.get(branch);
     if (direct) {
-      out.push({ entry, pr: direct });
+      joined.push({ entry, pr: direct });
       continue;
     }
     const forkNumber = parseForkPrNumber(branch);
     if (forkNumber !== null) {
       const forkPr = byNumber.get(forkNumber) ?? null;
-      out.push({ entry, pr: forkPr });
+      joined.push({ entry, pr: forkPr });
       continue;
     }
-    out.push({ entry, pr: null });
+    joined.push({ entry, pr: null });
   }
-  return out;
+  return joined;
 }
 
 function toRenderRow(joined: JoinedRow): RenderRow {
@@ -136,6 +139,7 @@ function toRenderRow(joined: JoinedRow): RenderRow {
 function renderJson(rows: readonly RenderRow[]): string {
   // Sanitize string fields before emitting so a malicious branch / path can't
   // smuggle escape codes through a JSON consumer that prints values raw.
+  // Numeric and boolean fields (prNumber, isStale) carry no injection risk.
   const sanitized = rows.map((r) => ({
     path: sanitizeForLog(r.path),
     branch: sanitizeForLog(r.branch),
@@ -237,9 +241,7 @@ export async function listCommand(
 
   const joined = joinWorktreesWithPrs(safeCandidates, prs);
   const allRows = joined.map(toRenderRow);
-  const rows = opts.stale
-    ? allRows.filter((r) => r.prState === "MERGED" || r.prState === "CLOSED")
-    : allRows;
+  const rows = opts.stale ? allRows.filter((r) => r.isStale) : allRows;
 
   if (opts.json) {
     deps.writeStdout(renderJson(rows));

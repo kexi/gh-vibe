@@ -125,6 +125,13 @@ export async function main(
 
   const [sub, ...rest] = argv;
 
+  // TODO(maintainability): each `case` block currently inlines parseArgs +
+  // help text + bounds checks for that subcommand. As more commands land,
+  // this `main` will balloon; the intended next refactor is to move each
+  // command's argv parser into its own `commands/<name>.ts` (e.g.
+  // `parseListArgs(rest): ListOptions | { exitCode }`) so `main` stays a
+  // thin dispatcher. Doing it for a single arm in isolation just creates
+  // asymmetry, so the migration should sweep all arms in one PR.
   switch (sub) {
     case "review": {
       let parsed;

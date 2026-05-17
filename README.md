@@ -63,6 +63,25 @@ Fork PRs are joined by `pr/<n>/<rest>`-shaped local branch names. Read-only:
 no network writes, no worktree mutation. Exits with code `2` when run under
 the shell wrapper (no `cd` line to emit).
 
+### `gh vibe clean`
+
+Bulk-removes vibe worktrees whose backing PR is merged or closed. Discovers
+candidates with the same filter `gh vibe list` uses, then runs
+`vibe clean -f --delete-branch` on each. Refuses to delete without an
+explicit typed-count confirmation (or `--yes`), refuses to run
+non-interactively without `--yes`, and refuses to run under the shell
+wrapper.
+
+```sh
+gh vibe clean --dry-run     # show what would be removed, change nothing
+gh vibe clean               # interactive, asks "Type N to confirm"
+gh vibe clean --yes         # CI / scripted use
+gh vibe clean --state=closed --include-no-pr
+```
+
+Requires: `gh`, `git`, `vibe` in `PATH`. Run from inside the main worktree.
+Full documentation: <https://gh-vibe.kexi.dev/commands/clean/>.
+
 ### `gh vibe shell-setup`
 
 Prints a shell snippet that wraps `gh` so that `gh vibe review <PR>` will
