@@ -3,6 +3,7 @@ import { cleanCommand } from "./commands/clean.ts";
 import {
   COMPLETION_SUPPORTED_SHELLS,
   completionCommand,
+  unsupportedShellMessage,
 } from "./commands/completion.ts";
 import { issueCommand } from "./commands/issue.ts";
 import { listCommand } from "./commands/list.ts";
@@ -434,7 +435,10 @@ export async function main(
         console.log(
           "Usage: gh vibe completion [--shell=<fish>]\n\n" +
             "Prints a shell completion script for `gh vibe`. Currently fish only;\n" +
-            "bash/zsh/pwsh are planned. Without --shell, the calling shell is auto-detected.\n\n" +
+            "bash/zsh/pwsh are planned. Without --shell, the calling shell is\n" +
+            "auto-detected from $SHELL; if the detected shell is not yet wired up\n" +
+            "(e.g. zsh today), the command exits 2 — pass --shell=fish explicitly\n" +
+            "to emit the fish snippet regardless of the host shell.\n\n" +
             "Install with:\n" +
             "  fish:  gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish\n" +
             "         (or, for the current session only: gh vibe completion --shell=fish | source)",
@@ -447,7 +451,9 @@ export async function main(
       // "do we have a snippet yet?" check below.
       const isValidShell = (s: string): s is ShellKind =>
         (SUPPORTED_SHELLS as readonly string[]).includes(s);
-      if (requestedShell !== undefined && !isValidShell(requestedShell)) {
+      const isTypoShell =
+        requestedShell !== undefined && !isValidShell(requestedShell);
+      if (isTypoShell) {
         console.error(
           `Unknown --shell value: ${requestedShell}. ` +
             `Supported: ${SUPPORTED_SHELLS.join(", ")}.`,
@@ -462,10 +468,7 @@ export async function main(
         COMPLETION_SUPPORTED_SHELLS as readonly string[]
       ).includes(shell);
       if (!isCompletionSupported) {
-        process.stderr.write(
-          `gh-vibe: completion for ${shell} is not yet supported ` +
-            `(only fish for now). Pass --shell=fish to emit it anyway.\n`,
-        );
+        process.stderr.write(unsupportedShellMessage(shell));
         return 2;
       }
       return completionCommand(shell);

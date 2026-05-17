@@ -1,0 +1,88 @@
+---
+title: gh vibe completion
+description: Print a tab-completion script for `gh vibe`.
+---
+
+Prints a tab-completion script for `gh vibe`. Subcommands, per-subcommand
+flags, enum values (`--type`, `--state`, `--shell`), and open PR / issue
+numbers are all wired through fish's completion engine.
+
+## Usage
+
+```sh
+gh vibe completion [--shell=<fish>]
+```
+
+Without `--shell`, the calling shell is auto-detected from `$SHELL`. If the
+detected shell is not yet wired up (e.g. zsh today), the command exits 2 —
+pass `--shell=fish` explicitly to emit the fish snippet regardless of the
+host shell.
+
+## Install
+
+### fish
+
+```fish
+# persistent — installs once into fish's completions dir
+gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish
+
+# or, for the current session only
+gh vibe completion --shell=fish | source
+```
+
+After that, every `gh vibe ...` invocation gets contextual completion:
+
+```fish
+gh vibe <TAB>                # review issue list clean shell-setup completion
+gh vibe review <TAB>         # open PR numbers with titles
+gh vibe issue <TAB>          # open issue numbers with titles
+gh vibe issue --type <TAB>   # feat fix docs chore refactor test perf
+gh vibe clean --state <TAB>  # merged closed merged,closed
+```
+
+## Dynamic PR / issue completion
+
+`gh vibe review <TAB>` and `gh vibe issue <TAB>` shell out to
+`gh pr list` / `gh issue list` and surface open items with their titles as
+completion descriptions. Errors (offline, non-repo directory, missing auth)
+are silenced — TAB simply yields no suggestions rather than spamming stderr.
+
+Results are cached for 30 seconds in a per-repo tmpfile so back-to-back TAB
+presses don't burn a `gh` round-trip each time. Each repo has its own cache
+key (derived from `git rev-parse --show-toplevel`), so checkouts of different
+repos never share suggestions.
+
+## Supported shells
+
+| Shell | Status |
+| --- | --- |
+| `fish` | ✅ |
+| `bash` | 🚧 planned |
+| `zsh` | 🚧 planned |
+| `pwsh` (PowerShell 7+) | 🚧 planned |
+
+`gh vibe completion --shell=zsh` (and the other not-yet-wired-up shells)
+exits 2 with an explanatory message rather than emitting nothing.
+
+## Coexistence with `gh vibe shell-setup`
+
+The two integrations are independent and can be loaded together:
+
+```fish
+# ~/.config/fish/config.fish
+gh vibe shell-setup --shell=fish | source
+
+# ~/.config/fish/completions/gh-vibe.fish  (or sourced once at startup)
+gh vibe completion --shell=fish | source
+```
+
+Each uses its own load-once sentinel (`_GH_VIBE_SHELL_SETUP_LOADED` vs
+`_GH_VIBE_COMPLETION_LOADED`), and the helper function namespace
+(`__ghvibe_*`) is unique to completion.
+
+## Uninstall
+
+Remove the file from `~/.config/fish/completions/` (or the `| source` line
+from your config) and reload the shell. The cached PR / issue lookups in
+`$TMPDIR/gh-vibe-completion-*` expire on their own; deleting them manually
+is safe but unnecessary.

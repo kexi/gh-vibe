@@ -21,7 +21,9 @@
  *     `gh` command (the extension is invoked as `gh vibe …`),
  *   - completes PR / issue numbers dynamically via `gh pr list` /
  *     `gh issue list`, silencing errors with `2>/dev/null` so tabbing in a
- *     non-repo / offline directory yields no suggestions rather than noise.
+ *     non-repo / offline directory yields no suggestions rather than noise,
+ *   - caches PR / issue lookups in a per-repo tmpfile with a 30-second TTL so
+ *     repeated TAB presses don't burn a `gh` round-trip each time.
  */
 
 import { type ShellKind } from "./shell-setup.ts";
@@ -47,6 +49,7 @@ if set -q _GH_VIBE_COMPLETION_LOADED
     # already loaded
 else
     set -g _GH_VIBE_COMPLETION_LOADED 1
+    set -g _GH_VIBE_COMPLETION_TTL 30
 
     function __ghvibe_needs_command
         set -l tokens (commandline -opc)
@@ -83,12 +86,67 @@ else
         return 0
     end
 
+    # Build a per-repo cache filename. Returns empty string when not inside a
+    # git repo — callers treat that as "no cache available, just go to gh".
+    function __ghvibe_cache_file
+        set -l kind $argv[1]
+        set -l toplevel (command git rev-parse --show-toplevel 2>/dev/null)
+        if test -z "$toplevel"
+            echo ""
+            return
+        end
+        set -l slug (string replace -ar '[^A-Za-z0-9]' _ -- $toplevel)
+        set -l dir (set -q TMPDIR; and echo $TMPDIR; or echo /tmp)
+        echo $dir/gh-vibe-completion-$USER-$kind-$slug
+    end
+
+    # Emit cached lines and return 0 on a fresh hit. mtime check supports both
+    # BSD (macOS) and GNU (Linux) stat by trying -f %m then -c %Y.
+    function __ghvibe_cache_get
+        set -l file $argv[1]
+        if test -z "$file"; or not test -f $file
+            return 1
+        end
+        set -l mtime (stat -f %m $file 2>/dev/null; or stat -c %Y $file 2>/dev/null)
+        if test -z "$mtime"
+            return 1
+        end
+        set -l age (math (date +%s) - $mtime)
+        if test $age -ge $_GH_VIBE_COMPLETION_TTL
+            return 1
+        end
+        cat $file
+        return 0
+    end
+
     function __ghvibe_complete_prs
-        command gh pr list --state open --limit 100 --template '{{range .}}{{.number}}\\t{{.title}}\\n{{end}}' 2>/dev/null
+        set -l cache (__ghvibe_cache_file prs)
+        if __ghvibe_cache_get $cache
+            return
+        end
+        set -l result (command gh pr list --state open --limit 100 --template '{{range .}}{{.number}}\\t{{.title}}\\n{{end}}' 2>/dev/null | string collect)
+        if test -z "$result"
+            return
+        end
+        if test -n "$cache"
+            printf '%s' $result > $cache 2>/dev/null
+        end
+        printf '%s' $result
     end
 
     function __ghvibe_complete_issues
-        command gh issue list --state open --limit 100 --template '{{range .}}{{.number}}\\t{{.title}}\\n{{end}}' 2>/dev/null
+        set -l cache (__ghvibe_cache_file issues)
+        if __ghvibe_cache_get $cache
+            return
+        end
+        set -l result (command gh issue list --state open --limit 100 --template '{{range .}}{{.number}}\\t{{.title}}\\n{{end}}' 2>/dev/null | string collect)
+        if test -z "$result"
+            return
+        end
+        if test -n "$cache"
+            printf '%s' $result > $cache 2>/dev/null
+        end
+        printf '%s' $result
     end
 
     # Subcommands (only when no subcommand has been typed yet)
@@ -155,6 +213,18 @@ export function completionSnippet(kind: ShellKind): string | undefined {
   return SNIPPETS[kind];
 }
 
+/**
+ * Single source for the "shell isn't wired up yet" message. The CLI
+ * dispatcher and the inner `completionCommand` both emit this so users see
+ * the same wording regardless of which guard triggered.
+ */
+export function unsupportedShellMessage(shell: ShellKind): string {
+  return (
+    `gh-vibe: completion for ${shell} is not yet supported ` +
+    `(only fish for now). Pass --shell=fish to emit it anyway.\n`
+  );
+}
+
 export interface CompletionDeps {
   /** Defaults to writing to the real stdout. */
   writeStdout: (s: string) => void;
@@ -188,10 +258,7 @@ export function completionCommand(
   const snippet = completionSnippet(shell);
   const isSupported = snippet !== undefined;
   if (!isSupported) {
-    deps.writeStderr(
-      `gh-vibe: completion for ${shell} is not yet supported ` +
-        `(only fish for now). Pass --shell=fish to emit it anyway.\n`,
-    );
+    deps.writeStderr(unsupportedShellMessage(shell));
     return 2;
   }
   deps.writeStdout(snippet);

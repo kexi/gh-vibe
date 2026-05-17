@@ -1,0 +1,87 @@
+---
+title: gh vibe completion
+description: "`gh vibe` 用のタブ補完スクリプトを出力する"
+---
+
+`gh vibe` 用のタブ補完スクリプトを出力します。サブコマンド・各サブコマンドの
+フラグ・enum 値（`--type` / `--state` / `--shell`）に加え、オープン中の
+PR / issue 番号も fish の補完エンジンに流し込みます。
+
+## 使い方
+
+```sh
+gh vibe completion [--shell=<fish>]
+```
+
+`--shell` を省略した場合は `$SHELL` から呼び出し元シェルを自動判定します。
+判定結果がまだ未対応のシェル（現状の zsh など）だった場合、コマンドは
+exit 2 を返します。ホストシェルに関わらず fish 用スニペットを出力したい
+ときは `--shell=fish` を明示してください。
+
+## 設定
+
+### fish
+
+```fish
+# 永続: fish の補完ディレクトリに 1 回だけインストール
+gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish
+
+# またはセッション限定
+gh vibe completion --shell=fish | source
+```
+
+これで `gh vibe ...` の補完が文脈ごとに効きます:
+
+```fish
+gh vibe <TAB>                # review issue list clean shell-setup completion
+gh vibe review <TAB>         # オープン中の PR 番号 + タイトル
+gh vibe issue <TAB>          # オープン中の issue 番号 + タイトル
+gh vibe issue --type <TAB>   # feat fix docs chore refactor test perf
+gh vibe clean --state <TAB>  # merged closed merged,closed
+```
+
+## PR / issue 番号の動的補完
+
+`gh vibe review <TAB>` と `gh vibe issue <TAB>` は `gh pr list` /
+`gh issue list` を呼び、オープン中の番号を候補（タイトルを description）
+として返します。エラー（オフライン / repo 外 / 認証なし）は黙殺され、
+TAB が標準エラーにノイズを吐くことはありません。
+
+結果は per-repo の tmpfile に **30 秒 TTL** でキャッシュされ、連打される
+TAB が毎回 `gh` のラウンドトリップを発生させないようになっています。
+キャッシュキーは `git rev-parse --show-toplevel` から派生するため、別 repo
+の checkout が同じ候補を共有してしまうことはありません。
+
+## 対応シェル
+
+| シェル | ステータス |
+| --- | --- |
+| `fish` | ✅ |
+| `bash` | 🚧 予定 |
+| `zsh` | 🚧 予定 |
+| `pwsh`（PowerShell 7+） | 🚧 予定 |
+
+未対応シェルを `--shell=` に指定すると、空文字列ではなく分かりやすい
+メッセージとともに exit 2 で終わります。
+
+## `gh vibe shell-setup` との共存
+
+両者は独立しており、同時にロードできます:
+
+```fish
+# ~/.config/fish/config.fish
+gh vibe shell-setup --shell=fish | source
+
+# ~/.config/fish/completions/gh-vibe.fish  （または起動時に source）
+gh vibe completion --shell=fish | source
+```
+
+ロードガードのセンチネルは別物（`_GH_VIBE_SHELL_SETUP_LOADED` と
+`_GH_VIBE_COMPLETION_LOADED`）で、補完側のヘルパー関数は `__ghvibe_*`
+名前空間に閉じています。
+
+## 解除
+
+`~/.config/fish/completions/` から該当ファイルを削除する
+（または config の `| source` 行を消す）だけで OK です。`$TMPDIR/gh-vibe-completion-*`
+の PR / issue キャッシュは自動失効するので放置で問題ありません。

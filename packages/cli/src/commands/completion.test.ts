@@ -4,6 +4,7 @@ import {
   COMPLETION_SUPPORTED_SHELLS,
   completionCommand,
   completionSnippet,
+  unsupportedShellMessage,
 } from "./completion.ts";
 
 describe("completionCommand", () => {
@@ -146,6 +147,21 @@ describe("completionSnippet: fish", () => {
     }
   });
 
+  test("caches dynamic lookups with a TTL keyed by repo toplevel", () => {
+    // Both completion helpers route through __ghvibe_cache_get / _file so
+    // back-to-back TAB presses don't burn a `gh` round-trip each time.
+    expect(snippet).toContain("__ghvibe_cache_file");
+    expect(snippet).toContain("__ghvibe_cache_get");
+    expect(snippet).toContain("_GH_VIBE_COMPLETION_TTL");
+    expect(snippet).toContain("set -g _GH_VIBE_COMPLETION_TTL 30");
+    // Per-repo key: cache filenames must include the git toplevel so two
+    // checkouts of different repos don't share suggestions.
+    expect(snippet).toContain("git rev-parse --show-toplevel");
+    // Cross-platform stat: BSD (-f %m) tried first, GNU (-c %Y) fallback.
+    expect(snippet).toContain("stat -f %m");
+    expect(snippet).toContain("stat -c %Y");
+  });
+
   test("emits literal \\t / \\n in the gh --template (for Go text/template)", () => {
     // The fish script must hand `gh` a template whose escapes are the
     // two-character sequences \t / \n; Go text/template interprets them.
@@ -166,5 +182,29 @@ describe("COMPLETION_SUPPORTED_SHELLS", () => {
     for (const kind of COMPLETION_SUPPORTED_SHELLS) {
       expect(COMPLETION_SNIPPETS[kind]).toBeDefined();
     }
+  });
+});
+
+describe("unsupportedShellMessage", () => {
+  // Shared between the CLI dispatcher and completionCommand so users see the
+  // same text regardless of which guard triggered. If this contract ever
+  // drifts (e.g., a fish-only ship adds new wording in only one call site),
+  // these assertions will catch it before release.
+  test("names the shell and recommends --shell=fish", () => {
+    for (const kind of ["bash", "zsh", "pwsh"] as const) {
+      const msg = unsupportedShellMessage(kind);
+      expect(msg).toContain(`completion for ${kind} is not yet supported`);
+      expect(msg).toContain("--shell=fish");
+      expect(msg.endsWith("\n")).toBe(true);
+    }
+  });
+
+  test("is what completionCommand emits to stderr", () => {
+    const stderr: string[] = [];
+    completionCommand("zsh", {
+      writeStdout: () => undefined,
+      writeStderr: (s) => stderr.push(s),
+    });
+    expect(stderr).toEqual([unsupportedShellMessage("zsh")]);
   });
 });

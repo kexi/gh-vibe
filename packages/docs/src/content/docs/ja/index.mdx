@@ -40,6 +40,11 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     bash / zsh / fish / PowerShell 用スニペットを仕込めば、`gh vibe review`
     成功時に自動で作成済みの worktree に `cd` します。
   </Card>
+  <Card title="fish タブ補完" icon="seti:shell">
+    `gh vibe completion --shell=fish | source` で全サブコマンド・フラグ・
+    enum 値が fish に登録され、`gh vibe review <TAB>` でオープン中の PR
+    番号（30 秒 per-repo キャッシュ）も即座に候補化されます。
+  </Card>
   <Card title="既定で安全" icon="approve-check">
     ラッパーはバージョン付きセンチネルで囲まれた出力のみを `eval` するため、
     無関係な `gh` 標準出力がシェルコードとして実行されることはありません。
