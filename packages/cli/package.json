@@ -1,6 +1,6 @@
 {
   "name": "gh-vibe",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "private": true,
   "type": "module",
   "description": "gh CLI extension for vibe — create git worktrees from PRs and issues",
