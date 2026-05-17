@@ -1,0 +1,152 @@
+---
+title: gh vibe clean
+description: Bulk-remove vibe worktrees whose backing PR is merged or closed.
+---
+
+Enumerates vibe-managed worktrees (siblings of the main worktree whose
+basename starts with `<repo>-`), looks each up via `gh pr view`, and runs
+`vibe clean -f --delete-branch` per worktree whose PR is merged or closed.
+
+Designed to be safe by default: nothing is deleted without an explicit
+typed-count confirmation, and several refusal paths short-circuit before
+any side-effect when the environment looks unsafe.
+
+## Usage
+
+```sh
+gh vibe clean
+```
+
+Takes no positional arguments — the candidate set is discovered from the
+git repository you run it in.
+
+## Flags
+
+### `-n, --dry-run`
+
+Lists what would be removed and the reason each candidate is included or
+skipped, without calling `vibe clean`.
+
+```sh
+gh vibe clean --dry-run
+```
+
+### `--state <list>`
+
+Comma-separated subset of `merged,closed`. Defaults to both. Case-insensitive;
+duplicates and whitespace around tokens are tolerated.
+
+```sh
+gh vibe clean --state=merged
+gh vibe clean --state=merged,closed
+```
+
+### `--include-no-pr`
+
+Also clean worktrees whose branch has no PR on GitHub. Off by default —
+absent this flag, branches without a corresponding PR are skipped.
+
+```sh
+gh vibe clean --include-no-pr
+```
+
+### `--yes`
+
+Skip the typed-count confirmation prompt. **Required when stdout is not a
+TTY** — `gh vibe clean` refuses non-interactive runs that omit `--yes`,
+to prevent pipes like `gh vibe clean | tee log.txt` from silently
+deleting worktrees.
+
+```sh
+gh vibe clean --yes        # CI / scripted use
+```
+
+### `--allow-no-default-branch`
+
+Waiver for repositories where `refs/remotes/origin/HEAD` is not set. Without
+this flag, `gh vibe clean` refuses to proceed when the default branch
+cannot be resolved (so it can use the default-branch name as a
+defense-in-depth filter). When the waiver is given, a small hardcoded set
+of likely default names (`main`, `master`, `trunk`, `develop`) is skipped
+instead.
+
+```sh
+gh vibe clean --allow-no-default-branch
+```
+
+### `-h, --help`
+
+Show command-specific help.
+
+## Exit codes
+
+| Code | Meaning |
+| ---- | ------- |
+| `0`  | Success, or no candidates found. |
+| `1`  | One or more per-worktree operations failed (network error to gh, `vibe clean` non-zero, etc.). |
+| `2`  | Usage error: invalid flag value, refused under shell mode, refused non-interactive without `--yes`, or default branch unresolvable without `--allow-no-default-branch`. |
+
+## Discovery
+
+A worktree is treated as a candidate when **all** of the following hold:
+
+- Its on-disk path is a direct sibling of the main worktree (same parent
+  directory).
+- Its basename starts with `<main-worktree-basename>-`. This matches how
+  `gh vibe review` / `gh vibe issue` create worktrees (e.g. a main checkout
+  at `~/repos/gh-vibe` yields siblings like `~/repos/gh-vibe-feat-foo`).
+- It is on a local branch (not bare, not detached).
+- Its branch is not the repository's default branch.
+- Its branch name passes git's ref-format validation and does not start
+  with `-`.
+
+The main worktree itself is never a candidate, regardless of name.
+
+## Classification
+
+For each candidate, the PR is looked up with `gh pr view <branch>`:
+
+| Result | Behavior |
+| ------ | -------- |
+| PR state ∈ `--state` set | **delete** |
+| PR state ∉ `--state` set | skip (`state=<value>`) |
+| PR not found (`PrNotFoundError`) + `--include-no-pr` | **delete** |
+| PR not found, no `--include-no-pr` | skip (`no-pr`) |
+| Transient error (network, auth, rate limit, …) | skip (`transient: <message>`), counted as a failure |
+| Candidate path equals the shell's current directory (symlink-resolved) | skip (`is-cwd`) |
+
+Transient errors **never** trigger deletion — a network blip can't be
+mistaken for "no PR exists".
+
+## Confirmation prompt
+
+In a TTY, with one or more deletions planned and without `--yes`, the
+command prints the sanitized plan and then asks you to type the exact
+worktree count to confirm:
+
+```text
+Type 7 to confirm deletion of 7 worktree(s):
+```
+
+Anything other than the expected integer (including `yes`, the wrong
+number, an empty line, or EOF) aborts with exit `0` and zero deletions.
+
+## Requirements
+
+- `gh`, `git`, and `vibe` available in `PATH`.
+- Run from inside the main worktree of a vibe-managed repository.
+- `refs/remotes/origin/HEAD` set — or pass `--allow-no-default-branch`.
+
+## What it does
+
+1. Refuses to run under the `gh vibe shell-setup` shell wrapper (no `cd`
+   is emitted; the wrapper has nothing to evaluate).
+2. Refuses to run non-interactively without `--yes`.
+3. Resolves the default branch (or honors the waiver).
+4. Enumerates worktrees via `git worktree list --porcelain -z`, filters
+   to candidates per the rules above.
+5. Classifies each candidate by querying `gh pr view <branch>`.
+6. In interactive mode, displays the plan and asks for typed-count
+   confirmation.
+7. Runs `vibe clean -f --delete-branch` in each delete-classified
+   worktree, in sequence; reports a summary line.

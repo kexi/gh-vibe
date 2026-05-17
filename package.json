@@ -1,6 +1,6 @@
 {
   "name": "gh-vibe-monorepo",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "type": "module",
   "description": "Monorepo for gh-vibe — a gh CLI extension that bridges GitHub PRs/issues and vibe worktrees",
