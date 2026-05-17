@@ -27,6 +27,11 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe issue 42` derives a `<type>/<num>-<slug>` branch from the
     issue's labels and title and creates a vibe worktree on it.
   </Card>
+  <Card title="Worktree status overlay" icon="list-format">
+    `gh vibe list` joins each vibe worktree to its PR's state, CI rollup,
+    and review decision via a single `gh pr list` call. `--stale` filters
+    to merged/closed-PR rows ready for `gh vibe clean`.
+  </Card>
   <Card title="Prune merged worktrees" icon="trash">
     `gh vibe clean` finds vibe worktrees whose PR is merged or closed and
     removes them — with a typed-count confirmation prompt so nothing

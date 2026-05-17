@@ -27,6 +27,11 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe issue 42` で issue のラベルとタイトルから
     `<type>/<num>-<slug>` のブランチ名を導出し、worktree を作成します。
   </Card>
+  <Card title="worktree の PR ステータス一覧" icon="list-format">
+    `gh vibe list` は各 vibe worktree を 1 回の `gh pr list` 呼び出しで
+    PR の state / CI ロールアップ / レビュー結論と結合します。`--stale`
+    で merge / close 済み行だけに絞れば `gh vibe clean` に流せます。
+  </Card>
   <Card title="merge 済み worktree を一括掃除" icon="trash">
     `gh vibe clean` は PR が merge / close 済みの vibe worktree を見つけて
     削除します。件数入力の確認プロンプトつきで、誤削除を防ぎます。
