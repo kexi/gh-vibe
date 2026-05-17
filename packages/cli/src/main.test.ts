@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { CleanOptions } from "./commands/clean.ts";
 import type { IssueOptions } from "./commands/issue.ts";
+import type { ListOptions } from "./commands/list.ts";
 import type { ReviewOptions } from "./commands/review.ts";
 import { initShellMode, main, type MainDeps } from "./main.ts";
 import { getShellMode, setShellMode } from "./lib/runtime.ts";
@@ -173,6 +174,7 @@ describe("main: issue subcommand argv parsing", () => {
       issueCommand: async (_opts: IssueOptions) => 0,
       reviewCommand: async (_opts: ReviewOptions) => 0,
       cleanCommand: async (_opts: CleanOptions) => 0,
+      listCommand: async (_opts: ListOptions) => 0,
       ...overrides,
     };
   }
@@ -302,6 +304,7 @@ describe("main: review subcommand argv parsing", () => {
       issueCommand: async (_opts: IssueOptions) => 0,
       reviewCommand: async (_opts: ReviewOptions) => 0,
       cleanCommand: async (_opts: CleanOptions) => 0,
+      listCommand: async (_opts: ListOptions) => 0,
       ...overrides,
     };
   }
@@ -354,6 +357,7 @@ describe("main: clean subcommand argv parsing", () => {
       issueCommand: async (_opts: IssueOptions) => 0,
       reviewCommand: async (_opts: ReviewOptions) => 0,
       cleanCommand: async (_opts: CleanOptions) => 0,
+      listCommand: async (_opts: ListOptions) => 0,
       ...overrides,
     };
   }
@@ -497,6 +501,137 @@ describe("main: clean subcommand argv parsing", () => {
 
     const code = await main(["clean", "-h"], deps);
 
+    expect(code).toBe(0);
+    expect(invoked).toBe(false);
+  });
+});
+
+describe("main: list subcommand argv parsing", () => {
+  function makeMainDeps(overrides: Partial<MainDeps> = {}): MainDeps {
+    return {
+      issueCommand: async (_opts: IssueOptions) => 0,
+      reviewCommand: async (_opts: ReviewOptions) => 0,
+      cleanCommand: async (_opts: CleanOptions) => 0,
+      listCommand: async (_opts: ListOptions) => 0,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    setIsTty(false);
+  });
+
+  test("list with no flags → defaults (json=false, stale=false, limit=200)", async () => {
+    const captured: ListOptions[] = [];
+    const deps = makeMainDeps({
+      listCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["list"], deps);
+    expect(code).toBe(0);
+    expect(captured.length).toBe(1);
+    expect(captured[0]).toEqual({
+      json: false,
+      stale: false,
+      limit: 200,
+      allowNoDefaultBranch: false,
+    });
+  });
+
+  test("--json → json=true", async () => {
+    const captured: ListOptions[] = [];
+    const deps = makeMainDeps({
+      listCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["list", "--json"], deps);
+    expect(code).toBe(0);
+    expect(captured[0].json).toBe(true);
+  });
+
+  test("--stale → stale=true", async () => {
+    const captured: ListOptions[] = [];
+    const deps = makeMainDeps({
+      listCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["list", "--stale"], deps);
+    expect(code).toBe(0);
+    expect(captured[0].stale).toBe(true);
+  });
+
+  test("--limit 5 → limit=5", async () => {
+    const captured: ListOptions[] = [];
+    const deps = makeMainDeps({
+      listCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["list", "--limit", "5"], deps);
+    expect(code).toBe(0);
+    expect(captured[0].limit).toBe(5);
+  });
+
+  test("--allow-no-default-branch → allowNoDefaultBranch=true", async () => {
+    const captured: ListOptions[] = [];
+    const deps = makeMainDeps({
+      listCommand: async (opts) => {
+        captured.push(opts);
+        return 0;
+      },
+    });
+    const code = await main(["list", "--allow-no-default-branch"], deps);
+    expect(code).toBe(0);
+    expect(captured[0].allowNoDefaultBranch).toBe(true);
+  });
+
+  test.each([
+    ["zero", "0"],
+    ["non-numeric", "abc"],
+    ["over the cap", "1001"],
+    ["leading zero", "07"],
+    ["scientific notation", "1e2"],
+    ["hex prefix", "0x10"],
+    ["negative", "-1"],
+  ])("--limit %s → exit 2, does not dispatch", async (_label, value) => {
+    let invoked = false;
+    const errorCalls: unknown[][] = [];
+    const consoleErrorOriginal = console.error;
+    console.error = ((...args: unknown[]) => {
+      errorCalls.push(args);
+    }) as typeof console.error;
+    let code: number;
+    try {
+      const deps = makeMainDeps({
+        listCommand: async () => {
+          invoked = true;
+          return 0;
+        },
+      });
+      code = await main(["list", "--limit", value], deps);
+    } finally {
+      console.error = consoleErrorOriginal;
+    }
+    expect(code).toBe(2);
+    expect(invoked).toBe(false);
+  });
+
+  test("list -h → exit 0 with help, does not dispatch", async () => {
+    let invoked = false;
+    const deps = makeMainDeps({
+      listCommand: async () => {
+        invoked = true;
+        return 0;
+      },
+    });
+    const code = await main(["list", "-h"], deps);
     expect(code).toBe(0);
     expect(invoked).toBe(false);
   });

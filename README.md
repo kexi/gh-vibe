@@ -46,6 +46,23 @@ Requires: `gh`, `git`, `vibe` in `PATH`. When `--base` is omitted, the
 repository must have `refs/remotes/origin/HEAD` set (recreate it with
 `git remote set-head origin --auto`).
 
+### `gh vibe list`
+
+Lists vibe-managed worktrees (siblings of the main worktree whose basename
+starts with `<repo>-`) together with their backing PR's state, CI rollup, and
+review decision. One `gh pr list` call covers the whole table.
+
+```sh
+gh vibe list
+gh vibe list --json                # machine-readable, no trailing newline
+gh vibe list --stale               # only worktrees whose PR is merged/closed
+gh vibe list --limit 500           # raise the gh pr list cap (default 200, max 1000)
+```
+
+Fork PRs are joined by `pr/<n>/<rest>`-shaped local branch names. Read-only:
+no network writes, no worktree mutation. Exits with code `2` when run under
+the shell wrapper (no `cd` line to emit).
+
 ### `gh vibe shell-setup`
 
 Prints a shell snippet that wraps `gh` so that `gh vibe review <PR>` will

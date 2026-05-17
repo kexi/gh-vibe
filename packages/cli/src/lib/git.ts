@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { ExecError, exec, execOrThrow } from "./exec.ts";
 import { maskSecrets, stripAnsi } from "./format.ts";
 
@@ -242,4 +243,132 @@ export async function getMainWorktreePath(
     throw new Error("Could not determine main worktree (no worktrees listed).");
   }
   return first.path;
+}
+
+/**
+ * Reason an enumerated worktree was skipped, surfaced so callers can log a
+ * sanitized message without re-implementing the filter rules.
+ */
+export type EnumerationSkipReason =
+  | "main"
+  | "bare"
+  | "detached"
+  | "no-branch"
+  | "non-sibling"
+  | "no-sibling-prefix"
+  | "is-default-branch"
+  | "dash-prefixed"
+  | "invalid-ref-name";
+
+export interface EnumerationSkip {
+  entry: WorktreeEntry;
+  reason: EnumerationSkipReason;
+  detail?: string;
+}
+
+export interface EnumerationResult {
+  candidates: WorktreeEntry[];
+  skips: EnumerationSkip[];
+  mainPath: string;
+}
+
+export interface EnumerateVibeWorktreesArgs {
+  /** Already-listed worktree entries (first must be the main worktree). */
+  entries: readonly WorktreeEntry[];
+  /**
+   * Already-resolved default branch (or `null` when resolution failed and the
+   * caller chose to soft-fail). Each command decides its own failure policy
+   * upstream — `clean` uses an extra likely-name guard when this is null,
+   * `list` simply renders without that filter.
+   */
+  defaultBranch: string | null;
+}
+
+/**
+ * Identify vibe-managed worktrees in the current repo. A candidate is a
+ * sibling of the main worktree (same parent dir, basename starts with
+ * `<main-basename>-`), checked out on a local branch that:
+ *   - is not the default branch
+ *   - does not start with `-`
+ *   - passes `assertValidRefName`
+ *
+ * Throws when `entries` is empty (no main worktree to anchor the filter).
+ * The caller is responsible for resolving `defaultBranch` and supplying it
+ * (or `null`) — each command picks its own soft / hard failure policy.
+ */
+export function enumerateVibeWorktrees(
+  args: EnumerateVibeWorktreesArgs,
+): EnumerationResult {
+  const entries = args.entries;
+  const mainEntry = entries[0];
+  if (!mainEntry) {
+    throw new Error(
+      "Could not determine main worktree (no worktrees listed).",
+    );
+  }
+  const mainPath = mainEntry.path;
+  const mainDir = path.dirname(mainPath);
+  const mainBasename = path.basename(mainPath);
+  const siblingPrefix = `${mainBasename}-`;
+
+  const candidates: WorktreeEntry[] = [];
+  const skips: EnumerationSkip[] = [];
+
+  for (const entry of entries) {
+    if (entry.isMain) {
+      skips.push({ entry, reason: "main" });
+      continue;
+    }
+    if (entry.isBare) {
+      skips.push({ entry, reason: "bare" });
+      continue;
+    }
+    if (entry.isDetached) {
+      skips.push({ entry, reason: "detached" });
+      continue;
+    }
+    const branch = entry.branch;
+    if (!branch) {
+      skips.push({ entry, reason: "no-branch" });
+      continue;
+    }
+
+    const entryDir = path.dirname(entry.path);
+    const entryBasename = path.basename(entry.path);
+    const isSibling = entryDir === mainDir;
+    if (!isSibling) {
+      skips.push({ entry, reason: "non-sibling" });
+      continue;
+    }
+    const hasSiblingPrefix = entryBasename.startsWith(siblingPrefix);
+    if (!hasSiblingPrefix) {
+      skips.push({ entry, reason: "no-sibling-prefix" });
+      continue;
+    }
+
+    const isDefaultBranch =
+      args.defaultBranch !== null && branch === args.defaultBranch;
+    if (isDefaultBranch) {
+      skips.push({ entry, reason: "is-default-branch" });
+      continue;
+    }
+
+    const isDashPrefixed = branch.startsWith("-");
+    if (isDashPrefixed) {
+      skips.push({ entry, reason: "dash-prefixed" });
+      continue;
+    }
+
+    try {
+      assertValidRefName(branch);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      skips.push({ entry, reason: "invalid-ref-name", detail: message });
+      continue;
+    }
+
+    candidates.push(entry);
+  }
+
+  return { candidates, skips, mainPath };
 }

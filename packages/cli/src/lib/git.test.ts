@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { ExecError } from "./exec.ts";
 import {
   assertValidRefName,
+  enumerateVibeWorktrees,
   fetchBranch,
   formatGitError,
   getDefaultBranch,
@@ -9,6 +10,7 @@ import {
   listWorktrees,
   parseWorktreeListAll,
   parseWorktreeListZ,
+  type WorktreeEntry,
 } from "./git.ts";
 
 function makeExecError(stderr: string, stdout = "", exitCode = 128): ExecError {
@@ -339,6 +341,140 @@ describe("listWorktrees", () => {
     };
     await listWorktrees(fakeExec);
     expect(calls).toEqual([["git", ["worktree", "list", "--porcelain", "-z"]]]);
+  });
+});
+
+describe("enumerateVibeWorktrees", () => {
+  function makeMain(): WorktreeEntry {
+    return {
+      path: "/repos/repo",
+      branch: "main",
+      isMain: true,
+      isBare: false,
+      isDetached: false,
+    };
+  }
+
+  function makeSibling(overrides: Partial<WorktreeEntry> = {}): WorktreeEntry {
+    return {
+      path: "/repos/repo-feature",
+      branch: "feature",
+      isMain: false,
+      isBare: false,
+      isDetached: false,
+      ...overrides,
+    };
+  }
+
+  test("throws when entries is empty", () => {
+    expect(() =>
+      enumerateVibeWorktrees({ entries: [], defaultBranch: "main" }),
+    ).toThrow(/Could not determine main worktree/);
+  });
+
+  test("sibling worktrees on a different branch are candidates", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [makeMain(), makeSibling()],
+      defaultBranch: "main",
+    });
+    expect(result.candidates.map((c) => c.path)).toEqual([
+      "/repos/repo-feature",
+    ]);
+    expect(result.mainPath).toBe("/repos/repo");
+  });
+
+  test("non-sibling worktrees are skipped with reason 'non-sibling'", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [makeMain(), makeSibling({ path: "/elsewhere/repo-feature" })],
+      defaultBranch: "main",
+    });
+    expect(result.candidates).toEqual([]);
+    const skip = result.skips.find((s) => s.entry.path === "/elsewhere/repo-feature");
+    expect(skip?.reason).toBe("non-sibling");
+  });
+
+  test("siblings without the repo-prefix basename are skipped", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [
+        makeMain(),
+        makeSibling({ path: "/repos/unrelated", branch: "x" }),
+      ],
+      defaultBranch: "main",
+    });
+    expect(result.candidates).toEqual([]);
+    const skip = result.skips.find((s) => s.entry.path === "/repos/unrelated");
+    expect(skip?.reason).toBe("no-sibling-prefix");
+  });
+
+  test("branch === defaultBranch is skipped", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [
+        makeMain(),
+        makeSibling({ path: "/repos/repo-main", branch: "main" }),
+      ],
+      defaultBranch: "main",
+    });
+    expect(result.candidates).toEqual([]);
+    const skip = result.skips.find((s) => s.entry.branch === "main" && !s.entry.isMain);
+    expect(skip?.reason).toBe("is-default-branch");
+  });
+
+  test("defaultBranch=null disables the default-branch skip rule", () => {
+    // `list`'s soft-fail policy: no defaultBranch known → do not pre-filter
+    // by branch name. (`clean` adds an extra likely-name guard upstream.)
+    const result = enumerateVibeWorktrees({
+      entries: [
+        makeMain(),
+        makeSibling({ path: "/repos/repo-main", branch: "main" }),
+      ],
+      defaultBranch: null,
+    });
+    expect(result.candidates.map((c) => c.branch)).toEqual(["main"]);
+  });
+
+  test("bare / detached / branchless siblings are skipped", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [
+        makeMain(),
+        makeSibling({ path: "/repos/repo-bare", branch: null, isBare: true }),
+        makeSibling({
+          path: "/repos/repo-detached",
+          branch: null,
+          isDetached: true,
+        }),
+        makeSibling({ path: "/repos/repo-orphan", branch: null }),
+      ],
+      defaultBranch: "main",
+    });
+    expect(result.candidates).toEqual([]);
+    expect(new Set(result.skips.map((s) => s.reason))).toEqual(
+      new Set(["main", "bare", "detached", "no-branch"]),
+    );
+  });
+
+  test("dash-prefixed branch is skipped", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [
+        makeMain(),
+        makeSibling({ path: "/repos/repo--evil", branch: "-evil" }),
+      ],
+      defaultBranch: "main",
+    });
+    expect(result.candidates).toEqual([]);
+    expect(result.skips.some((s) => s.reason === "dash-prefixed")).toBe(true);
+  });
+
+  test("branch failing assertValidRefName is skipped with detail", () => {
+    const result = enumerateVibeWorktrees({
+      entries: [
+        makeMain(),
+        makeSibling({ path: "/repos/repo-bad", branch: "bad~ref" }),
+      ],
+      defaultBranch: "main",
+    });
+    expect(result.candidates).toEqual([]);
+    const skip = result.skips.find((s) => s.reason === "invalid-ref-name");
+    expect(skip?.detail).toMatch(/Invalid ref name/);
   });
 });
 

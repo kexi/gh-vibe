@@ -1,11 +1,10 @@
 import { realpathSync } from "node:fs";
-import * as path from "node:path";
 import * as readline from "node:readline";
 import { exec } from "../lib/exec.ts";
 import { PrNotFoundError, viewPullRequest } from "../lib/gh.ts";
 import {
   type WorktreeEntry,
-  assertValidRefName,
+  enumerateVibeWorktrees,
   getDefaultBranch,
   listWorktrees,
 } from "../lib/git.ts";
@@ -143,7 +142,6 @@ export async function cleanCommand(
     );
     return 2;
   }
-  const mainPath = mainEntry.path;
 
   let defaultBranch: string | null;
   try {
@@ -162,29 +160,37 @@ export async function cleanCommand(
     }
   }
 
-  const mainDir = path.dirname(mainPath);
-  const mainBasename = path.basename(mainPath);
-  const siblingPrefix = `${mainBasename}-`;
+  const enumeration = enumerateVibeWorktrees({ entries, defaultBranch });
+
+  // Order of log lines must match the pre-refactor sequence: each sibling is
+  // logged in worktree-iteration order. Walking `enumeration.skips` followed
+  // by `enumeration.candidates` would batch them; instead, re-iterate the
+  // original entries and consult lookup maps to preserve ordering.
+  const skipByPath = new Map(enumeration.skips.map((s) => [s.entry.path, s]));
+  const candidatePaths = new Set(
+    enumeration.candidates.map((c) => c.path),
+  );
 
   const candidates: WorktreeEntry[] = [];
   for (const entry of entries) {
-    if (entry.isMain) continue;
-    if (entry.isBare) continue;
-    if (entry.isDetached) continue;
-    const branch = entry.branch;
-    if (!branch) continue;
-
-    const entryDir = path.dirname(entry.path);
-    const entryBasename = path.basename(entry.path);
-    const isSibling = entryDir === mainDir;
-    if (!isSibling) continue;
-    const hasSiblingPrefix = entryBasename.startsWith(siblingPrefix);
-    if (!hasSiblingPrefix) continue;
-
-    const isDefaultBranch =
-      defaultBranch !== null && branch === defaultBranch;
-    if (isDefaultBranch) continue;
-
+    const skip = skipByPath.get(entry.path);
+    if (skip) {
+      if (skip.reason === "dash-prefixed") {
+        const branch = entry.branch ?? "<no branch>";
+        deps.log(
+          `Skipping ${sanitizeForLog(entry.path)}: branch '${sanitizeForLog(branch)}' starts with '-'.`,
+        );
+      } else if (skip.reason === "invalid-ref-name") {
+        const detail = skip.detail ?? "Invalid ref name";
+        deps.log(
+          `Skipping ${sanitizeForLog(entry.path)}: ${sanitizeForLog(detail)}.`,
+        );
+      }
+      continue;
+    }
+    const isCandidate = candidatePaths.has(entry.path);
+    if (!isCandidate) continue;
+    const branch = entry.branch as string;
     // WHY: when `defaultBranch === null` (resolution failed + waiver flag),
     // we lose the primary defence against deleting a worktree whose branch
     // is the actual default. The `isMain` filter still protects the real
@@ -204,25 +210,6 @@ export async function cleanCommand(
       );
       continue;
     }
-
-    const isDashPrefixed = branch.startsWith("-");
-    if (isDashPrefixed) {
-      deps.log(
-        `Skipping ${sanitizeForLog(entry.path)}: branch '${sanitizeForLog(branch)}' starts with '-'.`,
-      );
-      continue;
-    }
-
-    try {
-      assertValidRefName(branch);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      deps.log(
-        `Skipping ${sanitizeForLog(entry.path)}: ${sanitizeForLog(message)}.`,
-      );
-      continue;
-    }
-
     candidates.push(entry);
   }
 

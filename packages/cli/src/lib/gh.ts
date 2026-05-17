@@ -13,6 +13,25 @@ export interface PullRequest {
   state: "OPEN" | "CLOSED" | "MERGED";
 }
 
+/**
+ * Subset of fields requested by `listPullRequests`. SECURITY: `headRefName`
+ * is attacker-controlled (fork PR title / branch name) — treat it as untrusted
+ * and never pass it to a subprocess; use it only for in-memory comparison and
+ * pass it through `sanitizeForLog` when displaying.
+ */
+export interface PullRequestSummary {
+  number: number;
+  headRefName: string;
+  state: "OPEN" | "CLOSED" | "MERGED";
+  mergeable?: string | null;
+  statusCheckRollup?: ReadonlyArray<{
+    conclusion?: string | null;
+    status?: string | null;
+    state?: string | null;
+  }> | null;
+  reviewDecision?: string | null;
+}
+
 export interface Issue {
   number: number;
   title: string;
@@ -46,6 +65,15 @@ const PR_FIELDS = [
   "headRepository",
   "headRepositoryOwner",
   "state",
+].join(",");
+
+const PR_LIST_FIELDS = [
+  "number",
+  "headRefName",
+  "state",
+  "mergeable",
+  "statusCheckRollup",
+  "reviewDecision",
 ].join(",");
 
 const ISSUE_FIELDS = ["number", "title", "url", "state", "labels"].join(",");
@@ -135,6 +163,60 @@ export async function viewPullRequest(
       // Keep the raw ExecError as `cause` so a future --verbose flag can
       // expose stderr/stdout without re-running the command.
       throw new Error(message, { cause: err });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Cap on the raw JSON payload from `gh pr list`. 10 MB is large enough to
+ * tolerate a few thousand PRs with full status check arrays, but small
+ * enough that a runaway / malicious response can't OOM the process.
+ */
+const PR_LIST_MAX_STDOUT_BYTES = 10 * 1024 * 1024;
+
+// Truncated or hostile JSON could surface as objects missing fields or with
+// wrong types; drop those rather than crashing later.
+function isValidPrListElement(x: unknown): x is PullRequestSummary {
+  const isObject = typeof x === "object" && x !== null;
+  if (!isObject) return false;
+  const obj = x as Record<string, unknown>;
+  const numberOk =
+    typeof obj.number === "number" &&
+    Number.isSafeInteger(obj.number) &&
+    obj.number > 0;
+  const headRefNameOk = typeof obj.headRefName === "string";
+  return numberOk && headRefNameOk;
+}
+
+export async function listPullRequests(
+  opts: { limit: number },
+  // Test seam; not part of the public API.
+  _exec: typeof execOrThrow = execOrThrow,
+): Promise<PullRequestSummary[]> {
+  try {
+    const out = await _exec(
+      "gh",
+      [
+        "pr",
+        "list",
+        "--json",
+        PR_LIST_FIELDS,
+        "--limit",
+        String(opts.limit),
+        "--state",
+        "all",
+      ],
+      { maxStdoutBytes: PR_LIST_MAX_STDOUT_BYTES },
+    );
+    const parsed = JSON.parse(out);
+    const isArray = Array.isArray(parsed);
+    if (!isArray) return [];
+    return parsed.filter(isValidPrListElement);
+  } catch (err) {
+    const isExecError = err instanceof ExecError;
+    if (isExecError) {
+      throw new Error(formatGhError(err, {}), { cause: err });
     }
     throw err;
   }
