@@ -5,6 +5,9 @@ import {
   fetchBranch,
   formatGitError,
   getDefaultBranch,
+  getMainWorktreePath,
+  listWorktrees,
+  parseWorktreeListAll,
   parseWorktreeListZ,
 } from "./git.ts";
 
@@ -230,6 +233,112 @@ describe("getDefaultBranch", () => {
       expect(message).not.toContain(token);
       expect(message).toContain("***@github.com");
     }
+  });
+});
+
+describe("parseWorktreeListAll", () => {
+  function buildOutput(groups: string[][]): string {
+    return groups.map((lines) => lines.join("\0")).join("\0\0");
+  }
+
+  test("empty input → empty array", () => {
+    expect(parseWorktreeListAll("")).toEqual([]);
+  });
+
+  test("first entry is marked isMain=true; others false", () => {
+    const out = buildOutput([
+      ["worktree /repos/main", "HEAD abc", "branch refs/heads/main"],
+      ["worktree /repos/feature", "HEAD def", "branch refs/heads/feature"],
+    ]);
+    const entries = parseWorktreeListAll(out);
+    expect(entries.length).toBe(2);
+    expect(entries[0].isMain).toBe(true);
+    expect(entries[1].isMain).toBe(false);
+  });
+
+  test("bare entry → isBare=true, branch=null", () => {
+    const out = buildOutput([
+      ["worktree /repos/bare", "bare"],
+    ]);
+    const entries = parseWorktreeListAll(out);
+    expect(entries[0].isBare).toBe(true);
+    expect(entries[0].branch).toBeNull();
+  });
+
+  test("detached entry → isDetached=true, branch=null", () => {
+    const out = buildOutput([
+      ["worktree /repos/main", "HEAD abc", "branch refs/heads/main"],
+      ["worktree /repos/detached", "HEAD def", "detached"],
+    ]);
+    const entries = parseWorktreeListAll(out);
+    expect(entries[1].isDetached).toBe(true);
+    expect(entries[1].branch).toBeNull();
+  });
+
+  test("normal entry → branch set without refs/heads/ prefix", () => {
+    const out = buildOutput([
+      ["worktree /repos/main", "HEAD abc", "branch refs/heads/main"],
+      [
+        "worktree /repos/feature",
+        "HEAD def",
+        "branch refs/heads/pr/42/feature",
+      ],
+    ]);
+    const entries = parseWorktreeListAll(out);
+    expect(entries[1].branch).toBe("pr/42/feature");
+  });
+
+  test("path with spaces preserved", () => {
+    const out = buildOutput([
+      [
+        "worktree /repos/with space",
+        "HEAD abc",
+        "branch refs/heads/main",
+      ],
+    ]);
+    expect(parseWorktreeListAll(out)[0].path).toBe("/repos/with space");
+  });
+
+  test("multiple groups: order preserved, only first has isMain=true", () => {
+    const out = buildOutput([
+      ["worktree /repos/a", "HEAD a", "branch refs/heads/a"],
+      ["worktree /repos/b", "HEAD b", "branch refs/heads/b"],
+      ["worktree /repos/c", "HEAD c", "branch refs/heads/c"],
+    ]);
+    const entries = parseWorktreeListAll(out);
+    expect(entries.map((e) => e.path)).toEqual([
+      "/repos/a",
+      "/repos/b",
+      "/repos/c",
+    ]);
+    expect(entries.map((e) => e.isMain)).toEqual([true, false, false]);
+  });
+});
+
+describe("getMainWorktreePath", () => {
+  function buildOutput(groups: string[][]): string {
+    return groups.map((lines) => lines.join("\0")).join("\0\0");
+  }
+
+  test("returns first entry's path", async () => {
+    const fakeExec = async (_cmd: string, _args: string[]) =>
+      buildOutput([
+        ["worktree /repos/main", "HEAD abc", "branch refs/heads/main"],
+        ["worktree /repos/feature", "HEAD def", "branch refs/heads/feature"],
+      ]);
+    expect(await getMainWorktreePath(fakeExec)).toBe("/repos/main");
+  });
+});
+
+describe("listWorktrees", () => {
+  test("invokes git with --porcelain -z", async () => {
+    const calls: Array<[string, string[]]> = [];
+    const fakeExec = async (cmd: string, args: string[]) => {
+      calls.push([cmd, args]);
+      return "";
+    };
+    await listWorktrees(fakeExec);
+    expect(calls).toEqual([["git", ["worktree", "list", "--porcelain", "-z"]]]);
   });
 });
 

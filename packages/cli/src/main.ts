@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { cleanCommand } from "./commands/clean.ts";
 import { issueCommand } from "./commands/issue.ts";
 import { reviewCommand } from "./commands/review.ts";
 import {
@@ -9,6 +10,7 @@ import {
 } from "./commands/shell-setup.ts";
 import { type TypePrefix, validateType } from "./lib/branch-name.ts";
 import { setShellMode } from "./lib/runtime.ts";
+import { parseStateList } from "./lib/state.ts";
 
 const VERSION = "0.0.1";
 
@@ -17,6 +19,7 @@ const HELP_TEXT = `gh-vibe — gh CLI extension for vibe worktrees
 Usage:
   gh vibe review <PR# | URL>   Create a worktree for reviewing a pull request
   gh vibe issue <# | URL>      Create a worktree for working on an issue
+  gh vibe clean                Bulk-remove vibe worktrees whose PR is merged/closed
   gh vibe shell-setup          Print shell wrapper that auto-cd's into the worktree
 
 Options:
@@ -82,6 +85,7 @@ export function initShellMode(): boolean {
 export interface MainDeps {
   issueCommand: typeof issueCommand;
   reviewCommand: typeof reviewCommand;
+  cleanCommand: typeof cleanCommand;
 }
 
 /**
@@ -102,7 +106,7 @@ type ParsedIssueArgs = {
 /** Exported only for tests; production callers should use the entry-point block. */
 export async function main(
   argv: string[],
-  deps: MainDeps = { issueCommand, reviewCommand },
+  deps: MainDeps = { issueCommand, reviewCommand, cleanCommand },
 ): Promise<number> {
   const shellMode = initShellMode();
   setShellMode(shellMode);
@@ -120,14 +124,23 @@ export async function main(
 
   switch (sub) {
     case "review": {
-      const { values, positionals } = parseArgs({
-        args: rest,
-        options: {
-          "dry-run": { type: "boolean", short: "n", default: false },
-          help: { type: "boolean", short: "h", default: false },
-        },
-        allowPositionals: true,
-      });
+      let parsed;
+      try {
+        parsed = parseArgs({
+          args: rest,
+          options: {
+            "dry-run": { type: "boolean", short: "n", default: false },
+            help: { type: "boolean", short: "h", default: false },
+          },
+          allowPositionals: true,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        console.error("Usage: gh vibe review <PR# | URL>");
+        return 2;
+      }
+      const { values, positionals } = parsed;
       if (values.help) {
         console.log(
           "Usage: gh vibe review <PR# | URL> [--dry-run]\n\n" +
@@ -139,6 +152,15 @@ export async function main(
       if (!prRef) {
         console.error("Error: review requires a PR number or URL.");
         console.error("Usage: gh vibe review <PR# | URL>");
+        return 2;
+      }
+      // Reject positionals that look like a flag — mirrors the `issue` guard
+      // so `-1` can't be misinterpreted by anything downstream as an option.
+      const prRefLooksLikeFlag = prRef.startsWith("-");
+      if (prRefLooksLikeFlag) {
+        console.error(
+          `Error: PR ref must not start with '-' (got: ${prRef}).`,
+        );
         return 2;
       }
       return await deps.reviewCommand({ prRef, dryRun: values["dry-run"] });
@@ -222,6 +244,63 @@ export async function main(
         dryRun: values["dry-run"],
         base: rawBase,
         type,
+      });
+    }
+    case "clean": {
+      let parsed;
+      try {
+        parsed = parseArgs({
+          args: rest,
+          options: {
+            "dry-run": { type: "boolean", short: "n", default: false },
+            state: { type: "string" },
+            "include-no-pr": { type: "boolean", default: false },
+            yes: { type: "boolean", default: false },
+            "allow-no-default-branch": { type: "boolean", default: false },
+            help: { type: "boolean", short: "h", default: false },
+          },
+          allowPositionals: false,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.error(`Error: ${message}`);
+        console.error("Usage: gh vibe clean [options]");
+        return 2;
+      }
+      const { values } = parsed;
+      if (values.help) {
+        console.log(
+          "Usage: gh vibe clean [options]\n\n" +
+            "Bulk-removes vibe worktrees whose backing PR is merged or closed.\n\n" +
+            "Options:\n" +
+            "  -n, --dry-run                 List candidates without deleting.\n" +
+            "      --state <list>            Comma-separated subset of {merged,closed}.\n" +
+            "                                Default: merged,closed.\n" +
+            "      --include-no-pr           Also clean worktrees whose branch has no PR.\n" +
+            "      --yes                     Skip the typed-count confirmation prompt.\n" +
+            "      --allow-no-default-branch Proceed even when origin/HEAD is unset.\n" +
+            "  -h, --help                    Show this help.",
+        );
+        return 0;
+      }
+      let state: ReadonlySet<"MERGED" | "CLOSED">;
+      if (values.state !== undefined) {
+        try {
+          state = parseStateList(values.state);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Error: ${message}`);
+          return 2;
+        }
+      } else {
+        state = new Set<"MERGED" | "CLOSED">(["MERGED", "CLOSED"]);
+      }
+      return await deps.cleanCommand({
+        dryRun: values["dry-run"],
+        state,
+        includeNoPr: values["include-no-pr"],
+        yes: values.yes,
+        allowNoDefaultBranch: values["allow-no-default-branch"],
       });
     }
     case "shell-setup": {
