@@ -27,6 +27,11 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe issue 42` derives a `<type>/<num>-<slug>` branch from the
     issue's labels and title and creates a vibe worktree on it.
   </Card>
+  <Card title="Prune merged worktrees" icon="trash">
+    `gh vibe clean` finds vibe worktrees whose PR is merged or closed and
+    removes them — with a typed-count confirmation prompt so nothing
+    disappears by accident.
+  </Card>
   <Card title="Shell auto-cd" icon="terminal">
     Install the shell snippet — bash, zsh, fish, or PowerShell — and
     `gh vibe review` will `cd` your shell into the freshly-created worktree

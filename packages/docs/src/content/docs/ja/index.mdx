@@ -27,6 +27,10 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe issue 42` で issue のラベルとタイトルから
     `<type>/<num>-<slug>` のブランチ名を導出し、worktree を作成します。
   </Card>
+  <Card title="merge 済み worktree を一括掃除" icon="trash">
+    `gh vibe clean` は PR が merge / close 済みの vibe worktree を見つけて
+    削除します。件数入力の確認プロンプトつきで、誤削除を防ぎます。
+  </Card>
   <Card title="シェル自動 cd" icon="terminal">
     bash / zsh / fish / PowerShell 用スニペットを仕込めば、`gh vibe review`
     成功時に自動で作成済みの worktree に `cd` します。

@@ -1,0 +1,147 @@
+---
+title: gh vibe clean
+description: バックの PR が merge / close 済みの vibe worktree を一括削除する
+---
+
+vibe が管理する worktree（main worktree と同じ親ディレクトリにあり、basename
+が `<repo>-` で始まるもの）を列挙し、各ブランチを `gh pr view` で照会し、
+PR が merge / close 済みの worktree に対して `vibe clean -f --delete-branch`
+を実行します。
+
+既定で安全側に倒した設計です。削除前には必ず「件数を打ち込む」確認
+プロンプトが入り、環境が安全でないと判断されたパス（シェルラッパー越し /
+非対話的実行で `--yes` なし 等）では副作用前に拒否します。
+
+## 使い方
+
+```sh
+gh vibe clean
+```
+
+位置引数はありません。候補は実行中の git リポジトリから自動で発見されます。
+
+## フラグ
+
+### `-n, --dry-run`
+
+削除対象と各候補の判定理由を表示し、`vibe clean` の呼び出しは行いません。
+
+```sh
+gh vibe clean --dry-run
+```
+
+### `--state <list>`
+
+`merged,closed` のサブセットをカンマ区切りで指定。既定は両方。大文字小文字
+無視、重複・前後の空白も許容されます。
+
+```sh
+gh vibe clean --state=merged
+gh vibe clean --state=merged,closed
+```
+
+### `--include-no-pr`
+
+GitHub 上に対応する PR が存在しない worktree も削除対象に含めます。既定では
+そのような worktree はスキップされます。
+
+```sh
+gh vibe clean --include-no-pr
+```
+
+### `--yes`
+
+件数入力の確認プロンプトをスキップします。**stdout が TTY ではない場合は
+必須**で、`--yes` 無しの非対話的実行は拒否されます（`gh vibe clean | tee
+log.txt` のようなパイプで意図せず削除が走らないようにする安全策です）。
+
+```sh
+gh vibe clean --yes        # CI / スクリプト用途
+```
+
+### `--allow-no-default-branch`
+
+`refs/remotes/origin/HEAD` が設定されていないリポジトリ向けの除外指定。
+このフラグなしでは、default branch が解決できない場合に実行を拒否します
+（default branch を多層防御のフィルタに使うため）。フラグを指定すると、
+代わりに `main` / `master` / `trunk` / `develop` の小さな既定リストが
+スキップ対象として用いられます。
+
+```sh
+gh vibe clean --allow-no-default-branch
+```
+
+### `-h, --help`
+
+コマンド個別のヘルプを表示します。
+
+## 終了コード
+
+| Code | 意味 |
+| ---- | ---- |
+| `0`  | 成功、または候補なし。 |
+| `1`  | worktree 単位の処理が 1 件以上失敗（gh のネットワークエラー / `vibe clean` の非ゼロ終了 等）。 |
+| `2`  | 使い方エラー: 不正なフラグ値、シェルモードでの実行拒否、非対話的実行で `--yes` 不足、または `--allow-no-default-branch` なしで default branch が解決できない。 |
+
+## ディスカバリ
+
+以下を **すべて** 満たす worktree が候補になります:
+
+- 物理パスが main worktree と同じ親ディレクトリ直下にある（兄弟関係）。
+- basename が `<main-worktreeの-basename>-` で始まる。これは
+  `gh vibe review` / `gh vibe issue` の作成パターン（例: `~/repos/gh-vibe`
+  が main なら `~/repos/gh-vibe-feat-foo` のような兄弟）に対応します。
+- ローカルブランチに紐付いている（bare でも detached でもない）。
+- ブランチがリポジトリの default branch ではない。
+- ブランチ名が git の ref-format バリデーションを通過し、かつ `-` で
+  始まらない。
+
+main worktree 自体は名前に関わらず候補になりません。
+
+## 分類
+
+各候補に対して `gh pr view <branch>` を呼び出して PR の状態を取得します:
+
+| 結果 | 振る舞い |
+| ---- | -------- |
+| PR の state が `--state` セットに含まれる | **削除** |
+| PR の state が `--state` セットに含まれない | スキップ（`state=<値>`） |
+| PR が見つからない（`PrNotFoundError`）＋ `--include-no-pr` | **削除** |
+| PR が見つからない、`--include-no-pr` 無し | スキップ（`no-pr`） |
+| 一時的なエラー（ネットワーク / 認証 / レート制限 等） | スキップ（`transient: <メッセージ>`）、失敗としてカウント |
+| 候補の path がシェルの現在ディレクトリと一致（symlink 解決後） | スキップ（`is-cwd`） |
+
+一時的なエラーは **絶対に削除をトリガーしません** — 通信エラーが「PR が
+存在しない」と誤分類されることはありません。
+
+## 確認プロンプト
+
+TTY 環境で、削除予定が 1 件以上あり、`--yes` が指定されていない場合は、
+サニタイズ済みの計画を表示したうえで対象件数の数字を打ち込ませます:
+
+```text
+Type 7 to confirm deletion of 7 worktree(s):
+```
+
+期待される整数以外の入力（`yes` / 異なる数字 / 空行 / EOF など）はすべて
+中止扱いになり、終了コード `0` で削除 0 件のまま戻ります。
+
+## 必要条件
+
+- `gh`、`git`、`vibe` が `PATH` 上に存在すること。
+- vibe で管理している git リポジトリの main worktree の中から実行すること。
+- `refs/remotes/origin/HEAD` が設定されている、または
+  `--allow-no-default-branch` を指定する。
+
+## 内部処理
+
+1. `gh vibe shell-setup` のラッパー経由での実行を拒否（`cd` を出さない
+   コマンドのためラッパーが eval する対象がなく、無意味）。
+2. `--yes` なしの非対話的実行を拒否。
+3. default branch を解決（またはフラグで除外）。
+4. `git worktree list --porcelain -z` で worktree を列挙し、上記ルールで
+   候補に絞り込み。
+5. 各候補について `gh pr view <branch>` で分類。
+6. 対話的モードでは計画を表示してから件数入力の確認プロンプト。
+7. 削除対象に対し、worktree ごとに `vibe clean -f --delete-branch` を順次
+   実行し、最後にサマリ行を出力。
