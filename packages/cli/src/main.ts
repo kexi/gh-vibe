@@ -440,13 +440,19 @@ export async function main(
             "(e.g. bash today), the command exits 2 — pass --shell=fish or\n" +
             "--shell=zsh explicitly to emit a snippet regardless of the host shell.\n\n" +
             "Install with:\n" +
-            "  fish:  gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish\n" +
-            "         (or, for the current session only: gh vibe completion --shell=fish | source)\n" +
-            "  zsh:   gh vibe completion --shell=zsh > ~/.config/zsh/completions/_gh-vibe\n" +
-            "         (ensure ~/.config/zsh/completions is in $fpath and compinit has run;\n" +
-            "         source AFTER `eval \"$(gh completion -s zsh)\"` so our wrapper can\n" +
-            "         capture the official _gh)\n" +
-            "         (or, for the current session only: eval \"$(gh vibe completion --shell=zsh)\")",
+            "  fish:\n" +
+            "    gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish\n" +
+            "    # current session only:\n" +
+            "    gh vibe completion --shell=fish | source\n\n" +
+            "  zsh — load order matters (gh first, then gh-vibe wrapper, then compinit):\n" +
+            "    mkdir -p ~/.config/zsh/completions\n" +
+            "    gh vibe completion --shell=zsh > ~/.config/zsh/completions/_gh-vibe\n" +
+            "    # in ~/.zshrc:\n" +
+            "    fpath=(~/.config/zsh/completions $fpath)\n" +
+            "    eval \"$(gh completion -s zsh)\"\n" +
+            "    autoload -U compinit && compinit\n" +
+            "    # current session only:\n" +
+            "    eval \"$(gh completion -s zsh)\" && eval \"$(gh vibe completion --shell=zsh)\"",
         );
         return 0;
       }

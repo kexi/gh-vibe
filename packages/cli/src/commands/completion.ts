@@ -32,13 +32,19 @@
  *     repeated TAB presses don't burn a `gh` round-trip each time.
  *
  * zsh-specific note: the script captures the official `_gh` completion (if
- * loaded) into `_gh_ghvibe_orig` before installing `_gh-vibe-wrapper` as the
- * `gh` completion handler. The wrapper inspects `$words[2]` and dispatches to
- * `_gh-vibe` when the user types `gh vibe …`, falling back to the saved
- * `_gh_ghvibe_orig` (or `_files`) otherwise. This means **the snippet must be
- * sourced after `eval "$(gh completion -s zsh)"`** — otherwise there is no
- * `_gh` to save, and gh's official completion will overwrite our wrapper if it
- * loads later.
+ * loaded) into `_gh_saved_by_ghvibe` before installing `_gh-vibe-wrapper` as
+ * the `gh` completion handler. The wrapper inspects `$words[2]` and dispatches
+ * to `_gh-vibe` when the user types `gh vibe …`, falling back to the saved
+ * `_gh_saved_by_ghvibe` (or `_files`) otherwise. This means **the snippet
+ * must be sourced after `eval "$(gh completion -s zsh)"`** — otherwise there
+ * is no `_gh` to save, and gh's official completion will overwrite our
+ * wrapper if it loads later.
+ *
+ * Documented limitation: if gh's `compdef _gh gh` is issued *after* this
+ * snippet loads (e.g. lazy plugin managers), the wrapper binding is silently
+ * overwritten and `gh vibe …` completion goes dark. This is pinned by the
+ * `[required-E]` test in completion.integration.test.ts; the docs' load-order
+ * warning is the canonical user-facing description.
  */
 
 import { type ShellKind } from "./shell-setup.ts";
@@ -65,7 +71,9 @@ if set -q _GH_VIBE_COMPLETION_LOADED
     # already loaded
 else
     set -g _GH_VIBE_COMPLETION_LOADED 1
-    set -g _GH_VIBE_COMPLETION_TTL 30
+    # Only set the default if the user hasn't pre-exported their own value
+    # (e.g. an earlier line in config.fish).
+    set -q _GH_VIBE_COMPLETION_TTL; or set -g _GH_VIBE_COMPLETION_TTL 30
 
     function __ghvibe_needs_command
         set -l tokens (commandline -opc)
@@ -209,8 +217,9 @@ else
     complete -c gh -x -n '__ghvibe_using_command shell-setup' -l shell -d 'Target shell' -a 'bash zsh fish pwsh'
     complete -c gh -f -n '__ghvibe_using_command shell-setup' -s h -l help -d 'Show help for shell-setup'
 
-    # completion
-    complete -c gh -x -n '__ghvibe_using_command completion' -l shell -d 'Target shell' -a 'fish zsh'
+    # completion — enum is derived from COMPLETION_SUPPORTED_SHELLS so it
+    # stays in sync when a new shell is wired up.
+    complete -c gh -x -n '__ghvibe_using_command completion' -l shell -d 'Target shell' -a '${COMPLETION_SUPPORTED_SHELLS.join(" ")}'
     complete -c gh -f -n '__ghvibe_using_command completion' -s h -l help -d 'Show help for completion'
 end
 `;
@@ -226,7 +235,13 @@ if [[ -n \${_GH_VIBE_COMPLETION_LOADED:-} ]]; then
   :
 else
   _GH_VIBE_COMPLETION_LOADED=1
-  _GH_VIBE_COMPLETION_TTL=30
+  # Only assign the default if the user hasn't pre-set their own value
+  # (e.g. an export earlier in ~/.zshrc).
+  : \${_GH_VIBE_COMPLETION_TTL:=30}
+  # Pull in zsh's \$EPOCHSECONDS so the cache-mtime comparison doesn't fork
+  # \`date +%s\` on every TAB. Silently skipped if the module isn't available;
+  # __ghvibe_cache_get falls back to date in that case.
+  zmodload zsh/datetime 2>/dev/null
 
   # Build a per-repo cache filename. Echoes empty string when not inside a
   # git repo — callers treat that as "no cache available, just hit gh".
@@ -256,7 +271,9 @@ else
       return 1
     fi
     local now age
-    now=$(date +%s)
+    # \$EPOCHSECONDS is set by zsh/datetime (loaded above); fall back to date
+    # if the module wasn't available so this still works on stripped-down zsh.
+    now=\${EPOCHSECONDS:-$(date +%s)}
     age=$(( now - mtime ))
     if (( age >= _GH_VIBE_COMPLETION_TTL )); then
       return 1
@@ -356,15 +373,17 @@ else
       '(-h --help)'{-h,--help}'[Show help for clean]'
   }
 
-  _ghvibe_cmd_shellsetup() {
+  _ghvibe_cmd_shell_setup() {
     _arguments \\
       '--shell[Target shell]:shell:(bash zsh fish pwsh)' \\
       '(-h --help)'{-h,--help}'[Show help for shell-setup]'
   }
 
   _ghvibe_cmd_completion() {
+    # Enum is derived from COMPLETION_SUPPORTED_SHELLS so it stays in sync
+    # when a new shell is wired up.
     _arguments \\
-      '--shell[Target shell]:shell:(fish zsh)' \\
+      '--shell[Target shell]:shell:(${COMPLETION_SUPPORTED_SHELLS.join(" ")})' \\
       '(-h --help)'{-h,--help}'[Show help for completion]'
   }
 
@@ -391,7 +410,7 @@ else
           issue)       _ghvibe_cmd_issue ;;
           list)        _ghvibe_cmd_list ;;
           clean)       _ghvibe_cmd_clean ;;
-          shell-setup) _ghvibe_cmd_shellsetup ;;
+          shell-setup) _ghvibe_cmd_shell_setup ;;
           completion)  _ghvibe_cmd_completion ;;
         esac
         ;;
@@ -409,9 +428,12 @@ else
       _gh-vibe
       return
     fi
-    if (( $+functions[_gh_ghvibe_orig] )); then
-      _gh_ghvibe_orig
+    if (( $+functions[_gh_saved_by_ghvibe] )); then
+      _gh_saved_by_ghvibe
     elif (( $+functions[_gh] )); then
+      # We didn't run \`functions -c\` (gh's completion landed after our
+      # snippet — see the load-order warning in the docs). The original
+      # _gh is still defined, so call it directly.
       _gh
     else
       _files
@@ -420,9 +442,9 @@ else
 
   # Capture the official _gh (if present) BEFORE compdef-overwriting it.
   # autoload +X forces the function body to load so functions -c can copy it.
-  if (( $+functions[_gh] )) && (( ! $+functions[_gh_ghvibe_orig] )); then
+  if (( $+functions[_gh] )) && (( ! $+functions[_gh_saved_by_ghvibe] )); then
     autoload +X _gh 2>/dev/null
-    functions -c _gh _gh_ghvibe_orig
+    functions -c _gh _gh_saved_by_ghvibe
   fi
 
   compdef _gh-vibe-wrapper gh
@@ -456,10 +478,14 @@ export function completionSnippet(kind: ShellKind): string | undefined {
  * the same wording regardless of which guard triggered.
  */
 export function unsupportedShellMessage(shell: ShellKind): string {
+  const supportedNames = COMPLETION_SUPPORTED_SHELLS.join(" and ");
+  const supportedFlags = COMPLETION_SUPPORTED_SHELLS.map(
+    (s) => `--shell=${s}`,
+  ).join(" or ");
   return (
     `gh-vibe: completion for ${shell} is not yet supported ` +
-    `(fish and zsh only for now). ` +
-    `Pass --shell=fish or --shell=zsh to emit a snippet anyway.\n`
+    `(${supportedNames} only for now). ` +
+    `Pass ${supportedFlags} to emit a snippet anyway.\n`
   );
 }
 

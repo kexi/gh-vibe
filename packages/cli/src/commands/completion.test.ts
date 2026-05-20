@@ -39,8 +39,12 @@ describe("completionCommand", () => {
       expect(stdout).toEqual([]);
       expect(stderr.length).toBe(1);
       expect(stderr[0]).toContain(`completion for ${kind} is not yet supported`);
-      // Message must name at least one currently-supported alternative.
-      expect(stderr[0]).toContain("--shell=fish");
+      // Message must name every currently-supported alternative — derived
+      // dynamically so adding bash later doesn't silently leave the wording
+      // pointing at only fish/zsh.
+      for (const supported of COMPLETION_SUPPORTED_SHELLS) {
+        expect(stderr[0]).toContain(`--shell=${supported}`);
+      }
     }
   });
 });
@@ -115,8 +119,15 @@ describe("completionSnippet: fish", () => {
 
   test("offers the --shell enum for shell-setup and completion", () => {
     expect(snippet).toContain("'bash zsh fish pwsh'");
-    // The `completion` subcommand now offers fish *and* zsh.
-    expect(snippet).toMatch(/completion'.*-l shell.*-a 'fish zsh'/s);
+    // The `completion` subcommand enum is derived from
+    // COMPLETION_SUPPORTED_SHELLS so the test stays accurate when bash/pwsh
+    // are wired up.
+    const enumLiteral = COMPLETION_SUPPORTED_SHELLS.join(" ");
+    const completionEnumMatcher = new RegExp(
+      `completion'.*-l shell.*-a '${enumLiteral}'`,
+      "s",
+    );
+    expect(snippet).toMatch(completionEnumMatcher);
   });
 
   test("dynamically completes PR numbers via gh pr list", () => {
@@ -207,9 +218,9 @@ describe("completionSnippet: zsh", () => {
 
   test("preserves the official _gh by copying it before compdef overwrites", () => {
     // If the user has gh's official zsh completion loaded, our snippet must
-    // copy it aside into _gh_ghvibe_orig before installing our wrapper, so
-    // the wrapper can fall through to the original for non-vibe gh args.
-    expect(snippet).toContain("functions -c _gh _gh_ghvibe_orig");
+    // copy it aside into _gh_saved_by_ghvibe before installing our wrapper,
+    // so the wrapper can fall through to the original for non-vibe gh args.
+    expect(snippet).toContain("functions -c _gh _gh_saved_by_ghvibe");
   });
 
   test("lists every `gh vibe` subcommand", () => {
@@ -262,9 +273,10 @@ describe("completionSnippet: zsh", () => {
   });
 
   test("offers the --shell enum for completion (fish and zsh)", () => {
-    // One more entry than the fish version, because zsh shipping means the
-    // completion subcommand now has two supported targets.
-    expect(snippet).toContain("(fish zsh)");
+    // Enum is derived from COMPLETION_SUPPORTED_SHELLS so the test stays
+    // accurate as new shells are wired up.
+    const enumLiteral = `(${COMPLETION_SUPPORTED_SHELLS.join(" ")})`;
+    expect(snippet).toContain(enumLiteral);
   });
 
   test("dynamically completes PR numbers via gh pr list", () => {
@@ -297,14 +309,20 @@ describe("completionSnippet: zsh", () => {
     expect(snippet).toContain("__ghvibe_cache_file");
     expect(snippet).toContain("__ghvibe_cache_get");
     expect(snippet).toContain("_GH_VIBE_COMPLETION_TTL");
-    // zsh uses bare assignment syntax (no `set -g` prefix like fish).
-    expect(snippet).toContain("_GH_VIBE_COMPLETION_TTL=30");
+    // The default is only assigned when unset (`:=`), so a pre-source export
+    // of _GH_VIBE_COMPLETION_TTL is respected. Bare `=30` would clobber.
+    expect(snippet).toContain("_GH_VIBE_COMPLETION_TTL:=30");
+    expect(snippet).not.toContain("_GH_VIBE_COMPLETION_TTL=30");
     // Per-repo key: cache filenames must include the git toplevel so two
     // checkouts of different repos don't share suggestions.
     expect(snippet).toContain("git rev-parse --show-toplevel");
     // Cross-platform stat: BSD (-f %m) tried first, GNU (-c %Y) fallback.
     expect(snippet).toContain("stat -f %m");
     expect(snippet).toContain("stat -c %Y");
+    // $EPOCHSECONDS (loaded via zmodload zsh/datetime) avoids forking `date`
+    // on every TAB; fall back to date when the module is unavailable.
+    expect(snippet).toContain("zmodload zsh/datetime");
+    expect(snippet).toContain("${EPOCHSECONDS:-$(date +%s)}");
   });
 
   test("restricts the on-disk cache to the current user (chmod 600)", () => {
@@ -346,13 +364,16 @@ describe("unsupportedShellMessage", () => {
   // same text regardless of which guard triggered. If this contract ever
   // drifts (e.g., a fish-only ship adds new wording in only one call site),
   // these assertions will catch it before release.
-  test("names the shell and recommends a supported alternative", () => {
+  test("names the shell and recommends every supported alternative", () => {
     for (const kind of ["bash", "pwsh"] as const) {
       const msg = unsupportedShellMessage(kind);
       expect(msg).toContain(`completion for ${kind} is not yet supported`);
-      // Should mention at least one currently-supported target.
-      expect(msg).toContain("--shell=fish");
-      expect(msg).toContain("--shell=zsh");
+      // Must enumerate *every* supported alternative, derived from
+      // COMPLETION_SUPPORTED_SHELLS so the message keeps pace as new shells
+      // are wired up.
+      for (const supported of COMPLETION_SUPPORTED_SHELLS) {
+        expect(msg).toContain(`--shell=${supported}`);
+      }
       expect(msg.endsWith("\n")).toBe(true);
     }
   });

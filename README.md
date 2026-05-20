@@ -136,9 +136,18 @@ gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish
 gh vibe completion --shell=fish | source
 ```
 
-```sh
-# zsh — install after gh's own completion is loaded, then re-run compinit
+```zsh
+# zsh — persistent (load order matters: gh first, gh-vibe wrapper second, compinit last)
+mkdir -p ~/.config/zsh/completions
 gh vibe completion --shell=zsh > ~/.config/zsh/completions/_gh-vibe
+
+# in ~/.zshrc
+fpath=(~/.config/zsh/completions $fpath)
+eval "$(gh completion -s zsh)"
+autoload -U compinit && compinit
+
+# or, current session only
+eval "$(gh completion -s zsh)" && eval "$(gh vibe completion --shell=zsh)"
 ```
 
 After that:

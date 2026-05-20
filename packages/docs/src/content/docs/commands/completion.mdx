@@ -46,6 +46,10 @@ completion stomp the wrapper later).
 > the full experience, always load gh's completion first; the recommended
 > snippets below already do this.
 
+The first line of the emitted snippet is `#compdef gh-vibe gh`; zsh treats
+this comment specially when the file lives on `$fpath`, registering the
+function for both commands automatically.
+
 ```zsh
 # persistent — drop into a dir on $fpath, then re-run compinit
 mkdir -p ~/.config/zsh/completions
@@ -91,23 +95,25 @@ on private repos may contain sensitive context.
 
 Even on a cache hit, each TAB still forks a few small processes
 (`git rev-parse` to find the repo toplevel, `stat` for the cache mtime,
-`date +%s` for the comparison, plus the `cat` of the cache file). On modern
-hardware that's negligible, but on low-power WSL or older macOS this can be
-felt as a slight pause. If you want fewer `gh` round-trips at the cost of
-seeing slightly staler PR titles, override `_GH_VIBE_COMPLETION_TTL` **after**
-sourcing the snippet — the snippet hard-codes the default to `30` (seconds),
-so an earlier `export` would be clobbered:
+plus the `cat` of the cache file). zsh additionally uses `$EPOCHSECONDS`
+(from `zsh/datetime`) when available so the mtime comparison doesn't fork
+`date +%s` on every keystroke. On modern hardware these costs are
+negligible, but on low-power WSL or older macOS they can be felt as a
+slight pause. If you want fewer `gh` round-trips at the cost of seeing
+slightly staler PR titles, set `_GH_VIBE_COMPLETION_TTL` — the snippet
+only assigns the `30`-second default when the variable is unset, so
+exporting it before or after sourcing both work:
 
 ```zsh
 # zsh — extend the cache TTL to 5 minutes
-eval "$(gh vibe completion --shell=zsh)"
 _GH_VIBE_COMPLETION_TTL=300
+eval "$(gh vibe completion --shell=zsh)"
 ```
 
 ```fish
-# fish — same idea
+# fish — same idea (before or after sourcing both work)
+set -gx _GH_VIBE_COMPLETION_TTL 300
 gh vibe completion --shell=fish | source
-set -g _GH_VIBE_COMPLETION_TTL 300
 ```
 
 ## Supported shells
@@ -164,6 +170,15 @@ terminal before cutting a release that touches `completion.ts`:
     repo with at least one open PR).
   - `gh-vibe <TAB>` (the binary invoked directly) lists the same six
     subcommands.
+- **zsh, flag and enum completion**: in the same session, exercise the
+  parts most likely to regress when `_arguments` declarations are edited:
+  - `gh vibe list --<TAB>` lists `--json`, `--stale`, `--limit`,
+    `--allow-no-default-branch`.
+  - `gh vibe clean --state <TAB>` offers the three values
+    `merged`, `closed`, `merged,closed` (the composite value is the one
+    most likely to break under future refactors).
+  - `gh vibe completion --shell <TAB>` offers **every** value in
+    `COMPLETION_SUPPORTED_SHELLS`.
 - **zsh, non-vibe gh fallthrough**: in the same session, `gh pr <TAB>`,
   `gh repo <TAB>`, and `gh issue <TAB>` should still complete via gh's own
   zsh completion — i.e. the wrapper must not have eaten them.
@@ -171,5 +186,5 @@ terminal before cutting a release that touches `completion.ts`:
   `gh vibe issue <TAB>` should show PR / issue numbers with titles as
   descriptions, in an actual repo.
 - **fish, --shell enum on completion**: `gh vibe completion --shell <TAB>`
-  must offer **both** `fish` and `zsh` (regression guard for the enum diverging
-  from `COMPLETION_SUPPORTED_SHELLS`).
+  must offer every value in `COMPLETION_SUPPORTED_SHELLS` (regression guard
+  for the enum diverging from the canonical list).
