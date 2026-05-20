@@ -123,17 +123,22 @@ Notes:
 
 ### `gh vibe completion`
 
-Prints a tab-completion script. Currently fish only; bash/zsh/pwsh are
+Prints a tab-completion script. Currently fish and zsh; bash and pwsh are
 planned. Open PR / issue numbers are completed dynamically via
 `gh pr list` / `gh issue list` with a 30-second per-repo cache so repeated
 TAB presses don't burn a round-trip each time.
 
 ```fish
-# persistent
+# fish — persistent
 gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish
 
 # or, current session only
 gh vibe completion --shell=fish | source
+```
+
+```sh
+# zsh — install after gh's own completion is loaded, then re-run compinit
+gh vibe completion --shell=zsh > ~/.config/zsh/completions/_gh-vibe
 ```
 
 After that:
@@ -145,8 +150,8 @@ gh vibe issue --type <TAB>   # feat fix docs chore refactor test perf
 ```
 
 Without `--shell`, the calling shell is auto-detected from `$SHELL`; if the
-detected shell isn't yet wired up (zsh today), the command exits 2 — pass
-`--shell=fish` explicitly to emit the fish snippet anyway. Full
+detected shell isn't yet wired up (bash today), the command exits 2 — pass
+`--shell=fish` or `--shell=zsh` explicitly to emit a snippet anyway. Full
 documentation: <https://gh-vibe.kexi.dev/commands/completion/>.
 
 ## Development
