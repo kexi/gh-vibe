@@ -15,6 +15,8 @@ import {
  * shell — no amount of string-match unit testing can catch a `local` keyword
  * that's invalid in dash, or a `[[ ]]` that breaks under POSIX `sh`.
  *
+ * Completion-snippet integration tests live in `completion.integration.test.ts`.
+ *
  * Each test that needs a real shell uses `test.skipIf(!hasShell(...))` so CI
  * environments without the shell installed simply skip instead of erroring.
  */

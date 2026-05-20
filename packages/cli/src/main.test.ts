@@ -736,11 +736,11 @@ describe("main: completion subcommand argv parsing", () => {
     expect(stdoutText()).toBe("");
   });
 
-  // 1.2 [required] — explicit --shell={bash,zsh,pwsh} routes through the
+  // 1.2 [required] — explicit --shell={bash,pwsh} routes through the
   // COMPLETION_SUPPORTED_SHELLS rejection branch (separate from 1.1's
   // SUPPORTED_SHELLS branch). The error text is written via
   // process.stderr.write, captured by the file-level stderrChunks.
-  test.each(["bash", "zsh", "pwsh"])(
+  test.each(["bash", "pwsh"])(
     "completion --shell=%s exits 2 with 'not yet supported' on stderr",
     async (shell) => {
       const deps = makeMainDeps();
@@ -766,6 +766,20 @@ describe("main: completion subcommand argv parsing", () => {
     expect(stderrText()).toBe("");
   });
 
+  // 1.3b [required] — same as 1.3 for the newly-wired zsh snippet. We
+  // additionally assert a zsh-specific sentinel (`compdef`) so a regression
+  // that emits the fish snippet on --shell=zsh would be caught.
+  test("completion --shell=zsh exits 0 and emits the zsh snippet to stdout", async () => {
+    const deps = makeMainDeps();
+    const code = await main(["completion", "--shell=zsh"], deps);
+
+    expect(code).toBe(0);
+    const out = stdoutText();
+    expect(out).toContain("_GH_VIBE_COMPLETION_LOADED");
+    expect(out).toContain("compdef _gh-vibe-wrapper gh");
+    expect(stderrText()).toBe("");
+  });
+
   // 1.4 [required]
   test("completion (no --shell) with SHELL=/opt/homebrew/bin/fish exits 0 and emits the fish snippet", async () => {
     process.env.SHELL = "/opt/homebrew/bin/fish";
@@ -777,18 +791,33 @@ describe("main: completion subcommand argv parsing", () => {
     expect(stderrText()).toBe("");
   });
 
-  // 1.5 [critical] — default macOS shell is zsh, so this is the path most
-  // users hit when they forget --shell=fish. The brief calls out asserting
-  // both the "not yet supported" message and the literal token "zsh".
-  test("completion (no --shell) with SHELL=/usr/bin/zsh exits 2 with 'not yet supported' on stderr", async () => {
+  // 1.5 [critical] — default macOS shell is zsh; this is the path most macOS
+  // users hit on a bare `gh vibe completion`. Now that zsh is wired up it
+  // should exit 0 with the zsh snippet, not the previous 2/"not supported".
+  test("completion (no --shell) with SHELL=/usr/bin/zsh exits 0 and emits the zsh snippet", async () => {
     process.env.SHELL = "/usr/bin/zsh";
+    const deps = makeMainDeps();
+    const code = await main(["completion"], deps);
+
+    expect(code).toBe(0);
+    const out = stdoutText();
+    expect(out).toContain("_GH_VIBE_COMPLETION_LOADED");
+    expect(out).toContain("compdef _gh-vibe-wrapper gh");
+    expect(stderrText()).toBe("");
+  });
+
+  // 1.5b [required] — bash is still not wired up; auto-detection should
+  // exit 2 with "not yet supported" so users get a clear hint rather than
+  // silent nothing-on-stdout.
+  test("completion (no --shell) with SHELL=/bin/bash exits 2 with 'not yet supported' on stderr", async () => {
+    process.env.SHELL = "/bin/bash";
     const deps = makeMainDeps();
     const code = await main(["completion"], deps);
 
     expect(code).toBe(2);
     const stderrAll = stderrText();
     expect(stderrAll).toContain("not yet supported");
-    expect(stderrAll).toContain("zsh");
+    expect(stderrAll).toContain("bash");
     expect(stdoutText()).toBe("");
   });
 
@@ -819,7 +848,7 @@ describe("main: completion subcommand argv parsing", () => {
 
     expect(code).toBe(2);
     expect(consoleErrorText()).toContain(
-      "Usage: gh vibe completion [--shell=<fish>]",
+      "Usage: gh vibe completion [--shell=<fish|zsh>]",
     );
     expect(stdoutText()).toBe("");
   });

@@ -28,7 +28,7 @@ Usage:
   gh vibe list                 List vibe worktrees and their PR / CI status
   gh vibe clean                Bulk-remove vibe worktrees whose PR is merged/closed
   gh vibe shell-setup          Print shell wrapper that auto-cd's into the worktree
-  gh vibe completion           Print a shell completion script (fish for now)
+  gh vibe completion           Print a shell completion script (fish and zsh)
 
 Options:
   -n, --dry-run    Print what would happen without fetching or creating a worktree
@@ -427,21 +427,32 @@ export async function main(
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         console.error(`Error: ${message}`);
-        console.error("Usage: gh vibe completion [--shell=<fish>]");
+        console.error("Usage: gh vibe completion [--shell=<fish|zsh>]");
         return 2;
       }
       const { values } = parsed;
       if (values.help) {
         console.log(
-          "Usage: gh vibe completion [--shell=<fish>]\n\n" +
-            "Prints a shell completion script for `gh vibe`. Currently fish only;\n" +
-            "bash/zsh/pwsh are planned. Without --shell, the calling shell is\n" +
+          "Usage: gh vibe completion [--shell=<fish|zsh>]\n\n" +
+            "Prints a shell completion script for `gh vibe`. Currently fish and zsh;\n" +
+            "bash and pwsh are planned. Without --shell, the calling shell is\n" +
             "auto-detected from $SHELL; if the detected shell is not yet wired up\n" +
-            "(e.g. zsh today), the command exits 2 — pass --shell=fish explicitly\n" +
-            "to emit the fish snippet regardless of the host shell.\n\n" +
+            "(e.g. bash today), the command exits 2 — pass --shell=fish or\n" +
+            "--shell=zsh explicitly to emit a snippet regardless of the host shell.\n\n" +
             "Install with:\n" +
-            "  fish:  gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish\n" +
-            "         (or, for the current session only: gh vibe completion --shell=fish | source)",
+            "  fish:\n" +
+            "    gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish\n" +
+            "    # current session only:\n" +
+            "    gh vibe completion --shell=fish | source\n\n" +
+            "  zsh — load order matters (gh first, then gh-vibe wrapper, then compinit):\n" +
+            "    mkdir -p ~/.config/zsh/completions\n" +
+            "    gh vibe completion --shell=zsh > ~/.config/zsh/completions/_gh-vibe\n" +
+            "    # in ~/.zshrc:\n" +
+            "    fpath=(~/.config/zsh/completions $fpath)\n" +
+            "    eval \"$(gh completion -s zsh)\"\n" +
+            "    autoload -U compinit && compinit\n" +
+            "    # current session only:\n" +
+            "    eval \"$(gh completion -s zsh)\" && eval \"$(gh vibe completion --shell=zsh)\"",
         );
         return 0;
       }
@@ -462,8 +473,8 @@ export async function main(
       }
       const shell = requestedShell ?? detectShell();
       // Second: even if it's a real ShellKind, the snippet may not be
-      // wired up yet (only fish today). Surface a clear error rather than
-      // emitting nothing, mirroring the message in `completionCommand`.
+      // wired up yet (only fish and zsh today). Surface a clear error rather
+      // than emitting nothing, mirroring the message in `completionCommand`.
       const isCompletionSupported = (
         COMPLETION_SUPPORTED_SHELLS as readonly string[]
       ).includes(shell);

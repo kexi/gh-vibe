@@ -5,18 +5,18 @@ description: "`gh vibe` 用のタブ補完スクリプトを出力する"
 
 `gh vibe` 用のタブ補完スクリプトを出力します。サブコマンド・各サブコマンドの
 フラグ・enum 値（`--type` / `--state` / `--shell`）に加え、オープン中の
-PR / issue 番号も fish の補完エンジンに流し込みます。
+PR / issue 番号も fish / zsh の補完エンジンに流し込みます。
 
 ## 使い方
 
 ```sh
-gh vibe completion [--shell=<fish>]
+gh vibe completion [--shell=<fish|zsh>]
 ```
 
 `--shell` を省略した場合は `$SHELL` から呼び出し元シェルを自動判定します。
-判定結果がまだ未対応のシェル（現状の zsh など）だった場合、コマンドは
-exit 2 を返します。ホストシェルに関わらず fish 用スニペットを出力したい
-ときは `--shell=fish` を明示してください。
+判定結果がまだ未対応のシェル（現状の bash など）だった場合、コマンドは
+exit 2 を返します。ホストシェルに関わらずスニペットを出力したいときは
+`--shell=fish` または `--shell=zsh` を明示してください。
 
 ## 設定
 
@@ -30,7 +30,42 @@ gh vibe completion --shell=fish > ~/.config/fish/completions/gh-vibe.fish
 gh vibe completion --shell=fish | source
 ```
 
-これで `gh vibe ...` の補完が文脈ごとに効きます:
+### zsh
+
+`gh vibe completion --shell=zsh` は、GitHub CLI 公式の zsh 補完
+（`eval "$(gh completion -s zsh)"`）を **読み込んだ後** に source して
+ください。先に読み込むと、gh-vibe ラッパーが元の `_gh` を保存できず、
+`gh vibe` の補完が効かなくなります（あるいは後から読み込まれる gh 公式の
+zsh 補完がラッパーを上書きしてしまいます）。
+
+> **前提**: gh-vibe ラッパーは、`gh vibe` 以外の補完要求を保存済みの
+> `_gh` に **委譲する** 設計です。`~/.zshrc` で gh 公式の zsh 補完を
+> **そもそも読み込んでいない** 場合、`gh vibe …` 自体は動きますが、
+> `gh pr <TAB>` / `gh repo <TAB>` 等の標準 gh サブコマンドは
+> ファイル名補完（`_files`）にフォールバックします。フル体験を得るには
+> 必ず gh の補完を先にロードしてください（下記の推奨スニペットは
+> その順序になっています）。
+
+出力されるスニペット先頭行の `#compdef gh-vibe gh` は zsh が `$fpath` 上
+のファイルに対して特別扱いするコメント行で、これにより 2 つのコマンド
+（`gh-vibe` と `gh`）に対する補完関数を一度に登録できます。
+
+```zsh
+# 永続: $fpath 上のディレクトリに置いて compinit を再実行
+mkdir -p ~/.config/zsh/completions
+gh vibe completion --shell=zsh > ~/.config/zsh/completions/_gh-vibe
+
+# ~/.zshrc（読み込み順序が重要: gh → gh-vibe ラッパー → compinit）
+fpath=(~/.config/zsh/completions $fpath)
+eval "$(gh completion -s zsh)"
+autoload -U compinit && compinit
+
+# またはセッション限定
+eval "$(gh completion -s zsh)"
+eval "$(gh vibe completion --shell=zsh)"
+```
+
+これで `gh vibe ...` の補完が文脈ごとに効きます（fish でも同じ）:
 
 ```fish
 gh vibe <TAB>                # review issue list clean shell-setup completion
@@ -50,15 +85,44 @@ TAB が標準エラーにノイズを吐くことはありません。
 結果は per-repo の tmpfile に **30 秒 TTL** でキャッシュされ、連打される
 TAB が毎回 `gh` のラウンドトリップを発生させないようになっています。
 キャッシュキーは `git rev-parse --show-toplevel` から派生するため、別 repo
-の checkout が同じ候補を共有してしまうことはありません。
+の checkout が同じ候補を共有してしまうことはありません。キャッシュの
+ファイル名形式は fish / zsh で共通なので、両者を併用しているユーザは
+シェル間でキャッシュヒットを共有できます。プライベート repo の PR / issue
+タイトルには機微情報が含まれ得るため、書き込み直後に `chmod 600` で
+他ユーザーから読めないようにしています。
+
+### キャッシュヒット時のレイテンシ
+
+キャッシュヒット時でも、TAB 1 回ごとに数個の小さなプロセス
+（repo の toplevel を求める `git rev-parse`、mtime 取得の `stat`、
+加えてキャッシュファイルの `cat`）を fork します。zsh ではさらに
+`zsh/datetime` の `$EPOCHSECONDS` を使うことで、mtime 比較の `date +%s`
+fork も削減しています。モダンなハードウェアでは無視できる程度ですが、
+低スペックの WSL や古い macOS では体感の引っかかりとして現れることが
+あります。`gh` 呼び出し頻度を下げる（多少古い PR タイトルを許容する）
+には `_GH_VIBE_COMPLETION_TTL` を上書きしてください。スニペットは
+デフォルト `30` 秒を **未設定時のみ** 代入するため、source の前後
+どちらに export しても反映されます:
+
+```zsh
+# zsh — TTL を 5 分に延ばす
+_GH_VIBE_COMPLETION_TTL=300
+eval "$(gh vibe completion --shell=zsh)"
+```
+
+```fish
+# fish — source の前でも後でも OK
+set -gx _GH_VIBE_COMPLETION_TTL 300
+gh vibe completion --shell=fish | source
+```
 
 ## 対応シェル
 
 | シェル | ステータス |
 | --- | --- |
 | `fish` | ✅ |
+| `zsh` | ✅ |
 | `bash` | 🚧 予定 |
-| `zsh` | 🚧 予定 |
 | `pwsh`（PowerShell 7+） | 🚧 予定 |
 
 未対応シェルを `--shell=` に指定すると、空文字列ではなく分かりやすい
@@ -82,6 +146,42 @@ gh vibe completion --shell=fish | source
 
 ## 解除
 
-`~/.config/fish/completions/` から該当ファイルを削除する
-（または config の `| source` 行を消す）だけで OK です。`$TMPDIR/gh-vibe-completion-*`
-の PR / issue キャッシュは自動失効するので放置で問題ありません。
+**fish**: `~/.config/fish/completions/` から該当ファイルを削除する
+（または config の `| source` 行を消す）だけで OK です。
+
+**zsh**: 補完ディレクトリから `_gh-vibe` を削除する（または `~/.zshrc`
+から `eval "$(gh vibe completion --shell=zsh)"` 行を消す）だけです。
+古い `compdef` キャッシュが残っている場合は `rm -f ~/.zcompdump*` の後に
+`compinit` を再実行してください。
+
+`$TMPDIR/gh-vibe-completion-*` の PR / issue キャッシュは自動失効するので
+放置で問題ありません。
+
+## リリース前手動チェックリスト
+
+ユーザーから見える挙動の一部は、実際のインタラクティブシェル依存のため
+自動テストではカバーしきれません。`completion.ts` に手を入れたリリース
+前に、実ターミナルで以下を確認してください:
+
+- **zsh — 3 経路**: `eval "$(gh completion -s zsh)"` を先に、
+  `eval "$(gh vibe completion --shell=zsh)"` を後にロードした zsh セッションで:
+  - `gh vibe <TAB>` で 6 サブコマンドが description 付きで出る
+  - `gh vibe review <TAB>` でオープン PR 番号 + タイトルが出る
+    （open PR が 1 件以上ある repo で実行）
+  - `gh-vibe <TAB>`（バイナリ直叩き）でも同じ 6 サブコマンドが出る
+- **zsh — フラグ・enum 補完**: 同セッションで、`_arguments` 宣言の編集で
+  最も壊れやすい部分を確認:
+  - `gh vibe list --<TAB>` で `--json` / `--stale` / `--limit` /
+    `--allow-no-default-branch` が出る
+  - `gh vibe clean --state <TAB>` で `merged` / `closed` /
+    `merged,closed` の 3 値が出る（複合値は将来のリファクタで壊れやすい）
+  - `gh vibe completion --shell <TAB>` が
+    `COMPLETION_SUPPORTED_SHELLS` の **全要素** を出す
+- **zsh — 非 vibe gh 補完が壊れていないこと**: 同セッションで
+  `gh pr <TAB>` / `gh repo <TAB>` / `gh issue <TAB>` が gh 公式の zsh 補完
+  経由で機能する（ラッパーが奪っていない）
+- **fish — 動的補完**: 実 repo で `gh vibe review <TAB>` /
+  `gh vibe issue <TAB>` が PR / issue 番号 + タイトル description を表示
+- **fish — completion の --shell enum**:
+  `gh vibe completion --shell <TAB>` が `COMPLETION_SUPPORTED_SHELLS`
+  の **全要素** を出す（同期回帰ガード）
