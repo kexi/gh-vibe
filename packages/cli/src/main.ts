@@ -18,7 +18,7 @@ import { type TypePrefix, validateType } from "./lib/branch-name.ts";
 import { setShellMode } from "./lib/runtime.ts";
 import { parseStateList } from "./lib/state.ts";
 
-const VERSION = "0.0.3";
+const VERSION = "0.0.4";
 
 const HELP_TEXT = `gh-vibe — gh CLI extension for vibe worktrees
 
