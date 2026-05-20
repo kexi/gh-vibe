@@ -42,10 +42,10 @@ import { Card, CardGrid } from "@astrojs/starlight/components";
     `gh vibe review` will `cd` your shell into the freshly-created worktree
     on success.
   </Card>
-  <Card title="Fish tab completion" icon="seti:shell">
-    `gh vibe completion --shell=fish | source` wires every subcommand,
-    flag, and enum into fish, plus dynamic PR / issue numbers (cached 30s
-    per repo) so `gh vibe review <TAB>` lists what's open.
+  <Card title="Shell tab completion" icon="seti:shell">
+    `gh vibe completion --shell=fish` (or `zsh`) wires every subcommand,
+    flag, and enum into your shell, plus dynamic PR / issue numbers
+    (cached 30s per repo) so `gh vibe review <TAB>` lists what's open.
   </Card>
   <Card title="Safe by default" icon="approve-check">
     The wrapper only `eval`s output fenced with versioned sentinels — unrelated
