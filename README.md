@@ -171,7 +171,7 @@ This repo is a pnpm monorepo:
 - `packages/docs/` — the Astro + Starlight documentation site.
 
 ```sh
-mise install                              # node, pnpm, bun from .mise.toml
+nix develop                               # node, pnpm, bun from flake.nix (or direnv: `direnv allow`)
 pnpm install                              # workspace deps
 pnpm -C packages/cli dev review 123 --dry-run
 pnpm -C packages/cli check                # tsc --noEmit

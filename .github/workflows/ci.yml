@@ -16,11 +16,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
-        env:
-          MISE_HTTP_TIMEOUT: "120"
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm -C packages/cli check
-      - run: pnpm -C packages/cli test
+      - uses: DeterminateSystems/nix-installer-action@v22
+      - run: nix develop --command pnpm install --frozen-lockfile
+      - run: nix develop --command pnpm -C packages/cli check
+      - run: nix develop --command pnpm -C packages/cli test
       - name: Build smoke test
-        run: pnpm -C packages/cli build && ./gh-vibe --version
+        run: nix develop --command bash -c 'pnpm -C packages/cli build && ./gh-vibe --version'

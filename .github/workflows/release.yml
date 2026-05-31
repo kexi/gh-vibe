@@ -23,14 +23,13 @@ jobs:
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: jdx/mise-action@v2
-        env:
-          MISE_HTTP_TIMEOUT: "120"
+      - uses: DeterminateSystems/nix-installer-action@v22
 
       - name: Install deps
-        run: pnpm install --frozen-lockfile
+        run: nix develop --command pnpm install --frozen-lockfile
 
       - name: Cross-compile
+        shell: nix develop --command bash -e {0}
         run: |
           set -euo pipefail
           mkdir -p dist

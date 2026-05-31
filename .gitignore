@@ -9,6 +9,13 @@ gh-vibe-*
 bun.lock
 .DS_Store
 
+# direnv (nix develop)
+.direnv/
+
+# Local-only files
+*.local.json
+*.local.md
+
 # Editor
 .vscode/
 .idea/

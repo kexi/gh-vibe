@@ -9,7 +9,7 @@ description: gh-vibe のローカルビルド・テスト・リリース手順
 ## セットアップ
 
 ```sh
-mise install            # .mise.toml に従って node, pnpm, bun を導入
+nix develop             # flake.nix から node, pnpm, bun を導入（または `direnv allow`）
 pnpm install            # ワークスペースの依存をインストール
 ```
 
