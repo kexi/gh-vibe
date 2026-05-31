@@ -8,8 +8,15 @@ description: gh-vibe のローカルビルド・テスト・リリース手順
 
 ## セットアップ
 
+前提: flakes を有効にした [Nix](https://nixos.org/download/)。
+[Determinate Systems インストーラ](https://github.com/DeterminateSystems/nix-installer)
+は既定で有効化します。既存環境では `~/.config/nix/nix.conf` に
+`experimental-features = nix-command flakes` を追記してください。
+[direnv](https://direnv.net/) は任意です — 一度 `direnv allow` すれば
+`nix develop` を打たずとも `cd` 時に自動でシェルが読み込まれます。
+
 ```sh
-mise install            # .mise.toml に従って node, pnpm, bun を導入
+nix develop             # flake.nix から node, pnpm, bun を導入（または `direnv allow`）
 pnpm install            # ワークスペースの依存をインストール
 ```
 

@@ -28,19 +28,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - name: Setup mise
-        uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4.0.1
-        env:
-          MISE_HTTP_TIMEOUT: "120"
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@ef8a148080ab6020fd15196c2084a2eea5ff2d25 # v22
 
       - name: Install dependencies
-        run: pnpm install --filter gh-vibe-docs --ignore-scripts
+        run: nix develop --command pnpm install --filter gh-vibe-docs --ignore-scripts
 
       - name: Check
-        run: pnpm -C packages/docs check
+        run: nix develop --command pnpm -C packages/docs check
 
       - name: Build documentation
-        run: pnpm -C packages/docs build
+        run: nix develop --command pnpm -C packages/docs build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
