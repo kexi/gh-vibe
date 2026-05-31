@@ -8,6 +8,13 @@ documentation site (this one) in `packages/docs/`.
 
 ## Setup
 
+Prerequisite: [Nix](https://nixos.org/download/) with flakes enabled. The
+[Determinate Systems installer](https://github.com/DeterminateSystems/nix-installer)
+turns them on by default; on an existing install add
+`experimental-features = nix-command flakes` to `~/.config/nix/nix.conf`.
+[direnv](https://direnv.net/) is optional — `direnv allow` once and the shell
+loads on `cd` instead of typing `nix develop`.
+
 ```sh
 nix develop             # node, pnpm, bun from flake.nix (or `direnv allow`)
 pnpm install            # installs workspace deps

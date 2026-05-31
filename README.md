@@ -170,6 +170,13 @@ This repo is a pnpm monorepo:
 - `packages/cli/` — the CLI (source for the `gh-vibe` binary).
 - `packages/docs/` — the Astro + Starlight documentation site.
 
+Prerequisite: [Nix](https://nixos.org/download/) with flakes enabled. The
+[Determinate Systems installer](https://github.com/DeterminateSystems/nix-installer)
+turns them on by default; on an existing install add
+`experimental-features = nix-command flakes` to `~/.config/nix/nix.conf`.
+[direnv](https://direnv.net/) is optional — run `direnv allow` once and the
+shell loads on `cd` instead of typing `nix develop`.
+
 ```sh
 nix develop                               # node, pnpm, bun from flake.nix (or direnv: `direnv allow`)
 pnpm install                              # workspace deps
